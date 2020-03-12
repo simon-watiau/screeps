@@ -7,7 +7,6 @@
   "scripts": {
     "lint": "tslint -p tsconfig.json \"src/**/*.ts\"",
     "build": "rollup -c",
-    "push-main": "rollup -c --environment DEST:main",
     "push-pserver": "rollup -c --environment DEST:pserver",
     "push-sim": "rollup -c --environment DEST:sim",
     "test": "npm run test-unit && npm run test-integration",
@@ -57,6 +56,8 @@
     "typescript": "^2.9.2"
   },
   "dependencies": {
+    "screeps-server-mockup": "^1.5.0",
+    "screepsmod-auth": "^2.4.7",
     "source-map": "~0.6.1"
   }
 }
