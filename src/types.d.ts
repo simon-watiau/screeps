@@ -3,13 +3,21 @@
 // memory extension samples
 interface CreepMemory {
   role: string;
-  room: string;
-  working: boolean;
+  meta: any;
+  objective: string;
 }
 
 interface Memory {
   uuid: number;
   log: any;
+  terraformedRoom: {
+    [roomName: string]: RoomMemory
+  }
+}
+
+interface RoomMemory {
+  harvesters: Array<Id<Source>>
+  controller?: Id<StructureController>
 }
 
 // `global` extension samples

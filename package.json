@@ -5,7 +5,7 @@
   "main": "index.js",
   "//": "If you add or change the names of destinations in screeps.json, make sure you update these scripts to reflect the changes",
   "scripts": {
-    "lint": "tslint -p tsconfig.json \"src/**/*.ts\"",
+    "lint": "tslint --fix -p tsconfig.json \"src/**/*.ts\"",
     "build": "rollup -c",
     "push-pserver": "rollup -c --environment DEST:pserver",
     "push-sim": "rollup -c --environment DEST:sim",
@@ -56,8 +56,13 @@
     "typescript": "^2.9.2"
   },
   "dependencies": {
+    "@screeps/common": "^2.12.1",
+    "@screeps/driver": "^5.0.0",
+    "@screeps/engine": "^4.0.4",
     "screeps-server-mockup": "^1.5.0",
+    "screepsmod-admin-utils": "^1.13.4",
     "screepsmod-auth": "^2.4.7",
-    "source-map": "~0.6.1"
+    "source-map": "~0.6.1",
+    "typescript-logging": "^0.6.4"
   }
 }

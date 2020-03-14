@@ -1,14 +1,27 @@
 import { ErrorMapper } from "utils/ErrorMapper";
+import garbageCollect from "./GarbageCollector";
+import RoomController from './room/RoomController';
+import {factory} from "./utils/ConfigLog4J";
 
-// When compiling TS to JS and bundling with rollup, the line numbers and file names in error messages change
-// This utility uses source maps to get the line numbers and file names of the original, TS source code
+const logger = factory.getLogger("root");
+let r : RoomController|undefined;
+if (!Memory.terraformedRoom) {
+  Memory.terraformedRoom = {};
+}
+
+logger.info('REBOOTED');
+
 export const loop = ErrorMapper.wrapLoop(() => {
-  console.log(`Current game tick is ${Game.time}`);
+  garbageCollect();
 
-  // Automatically delete memory of missing creeps
-  for (const name in Memory.creeps) {
-    if (!(name in Game.creeps)) {
-      delete Memory.creeps[name];
-    }
+  if (!r) {
+    r = new RoomController(Game.spawns.Spawn1.room.name);
   }
+  try {
+    r.tick();
+  }catch(err){
+    const error:Error = err;
+      console.log(error.stack);
+  }
+
 });
