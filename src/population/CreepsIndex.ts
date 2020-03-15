@@ -1,11 +1,73 @@
 class CreepsIndex {
+  public static LVL_HARVESTER_1 = 1;
+  public static LVL_HARVESTER_2 = 2;
 
   private static randomName(type: string): string {
     return type + " " + Math.floor(Math.random() * Math.floor(10000));
   };
 
-  public requestHarvester(target: RoomPosition): Creep|undefined {
-    console.log('Harvester requested');
+  public requestHarvester(target: RoomPosition, level: number): Creep|undefined {
+    let body: BodyPartConstant[];
+    switch (level) {
+      default:
+      case CreepsIndex.LVL_HARVESTER_1:
+        body = [WORK, CARRY, MOVE];
+        break;
+      case CreepsIndex.LVL_HARVESTER_2:
+        body = [WORK, WORK, MOVE];
+        break;
+    }
+    return this.request(target, 'harvester', body)
+  }
+
+  public requestRepair(target: RoomPosition): Creep|undefined {
+    let body: BodyPartConstant[];
+
+    body = [WORK, CARRY, MOVE];
+
+    return this.request(target, 'repair', body)
+  }
+
+  public requestLogistic(target: RoomPosition, level: number = -1): Creep|undefined {
+    let body: BodyPartConstant[];
+    switch (level) {
+      default:
+        body = [CARRY, CARRY, MOVE, MOVE];
+        break;
+    }
+    return this.request(target, 'logistic', body)
+  }
+
+  public requestCharger(target: RoomPosition, level: number = -1): Creep|undefined {
+    let body: BodyPartConstant[];
+    switch (level) {
+      default:
+        body = [CARRY, WORK, MOVE];
+        break;
+    }
+    return this.request(target, 'charger', body)
+  }
+
+  public requestBuilder(target: RoomPosition, level: number = -1): Creep|undefined {
+    let body: BodyPartConstant[];
+    switch (level) {
+      default:
+        body = [WORK, CARRY, MOVE];
+        break;
+    }
+    return this.request(target, 'builder', body)
+  }
+
+  public requestClaim(target: RoomPosition): Creep|undefined {
+    let body: BodyPartConstant[];
+
+    body = [CLAIM, WORK, MOVE];
+    return this.request(target, 'claim', body)
+  }
+
+
+  public request(target: RoomPosition, label:string, body: BodyPartConstant[]): Creep|undefined {
+    console.log(label, 'requested');
 
     const spawn = this.findClosestSpawn(target);
     if (spawn === undefined) {
@@ -14,15 +76,9 @@ class CreepsIndex {
       return undefined;
     }
 
-    const properties: any = {
-      memory: {
-        role: 'harvester'
-      }
-    };
 
-    const harvesterName = CreepsIndex.randomName('harvester');
-
-    const spawnStatus: ScreepsReturnCode = spawn.spawnCreep([WORK,CARRY,MOVE], harvesterName, properties);
+    const creepName = CreepsIndex.randomName(label);
+    const spawnStatus = spawn.spawnCreep(body, creepName);
 
     if (spawnStatus !== OK) {
       console.log('Spawning failed', spawnStatus);
@@ -30,9 +86,9 @@ class CreepsIndex {
       return undefined
     }
 
-    console.log('Harvester', harvesterName, 'spawned');
+    console.log(label, creepName, 'spawned');
 
-    return Game.creeps[harvesterName];
+    return Game.creeps[creepName];
   }
 
   public findClosestSpawn(target: RoomPosition) : StructureSpawn|undefined {
@@ -85,11 +141,15 @@ class CreepsIndex {
     );
 
     if (!ret) {
+      console.log("no rounte");
       return;
     }
 
     const pos: RoomPosition = ret.path[0];
-
+    if (!pos) {
+      console.log(ret.path);
+      return undefined;
+    }
     let bestSpawn: StructureSpawn|undefined;
     let bestSpawnDistance: number = -1;
     availableSpawns.forEach((spawn: StructureSpawn) => {

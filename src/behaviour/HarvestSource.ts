@@ -134,6 +134,7 @@ export default class HarvestSource extends StateMachine {
         } else {
           this.getCreep().moveTo(this.getSource().pos);
         }
+
         break;
       case HarvestSource.STATE_READY_TO_START:
         this.getCreep().pos.createConstructionSite(STRUCTURE_CONTAINER);
@@ -153,21 +154,32 @@ export default class HarvestSource extends StateMachine {
         break;
       case HarvestSource.STATE_WORKING:
         const creep2 = this.getCreep();
-        if (creep2.store.getFreeCapacity() > 0) {
+        if (creep2.store.getFreeCapacity() > 0 || creep2.store.getCapacity() === null) {
           creep2.harvest(this.getSource());
           this.logger.info('Harvesting for container: '+ creep2.store.getUsedCapacity() + '/'+ creep2.store.getCapacity());
+          if (creep2.store.getCapacity() === 0) {
+            const site: StructureContainer = this.getTarget();
+            this.logger.info('Transfer for container: ' + site.store.getUsedCapacity() + '/' + site.store.getCapacity());
+          }
         }else {
-          if (creep2.transfer(this.getTarget(), RESOURCE_ENERGY) !== OK) {
-            throw new Error("Failed to deposit");
+          const depositResult = creep2.transfer(this.getTarget(), RESOURCE_ENERGY);
+          if (depositResult !== OK && depositResult !== ERR_FULL && depositResult !== ERR_NOT_ENOUGH_ENERGY) {
+            throw new Error("Failed to deposit " + depositResult);
           }
           const site:StructureContainer = this.getTarget();
-          this.logger.info('Building for container: '+ site.store.getUsedCapacity() + '/'+ site.store.getCapacity());
+          this.logger.info('Transfer for container: '+ site.store.getUsedCapacity() + '/'+ site.store.getCapacity());
         }
         break;
       case HarvestSource.STATE_INIT:
         const source = this.getSource();
           const creepIndex = new CreepsIndex();
-          const newCreep = creepIndex.requestHarvester(source.pos);
+          let level = CreepsIndex.LVL_HARVESTER_1;
+          if (this.isContainerReady()) {
+            level = CreepsIndex.LVL_HARVESTER_2;
+          }
+
+          const newCreep = creepIndex.requestHarvester(source.pos, level);
+
           if (!newCreep) {
             return;
           }

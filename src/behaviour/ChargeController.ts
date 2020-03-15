@@ -1,40 +1,37 @@
+import _ from "lodash";
 import CreepsIndex from "../population/CreepsIndex";
-import StateMachine from "../StateMachine";
-import {factory} from "../utils/ConfigLog4J";
 
-export default class ChargeController extends StateMachine
+export default class ChargeController
 {
-  private controllerId: Id<StructureController>;
+  public static ROLE = 'charger';
 
-  private static ROLE = 'charger';
-  private static META_CONTROLLER_ID = "controller_id";
-  private static STATE_INIT = "init";
-  private static STATE_CREATING = "creating";
-  private static STATE_BUILD = "build";
-  private static STATE_REFILL = "refill";
-  private static OBJECTIVE_FILL = "filling";
-  private static OBJECTIVE_BUILD = "build";
+  private static OBJECTIVE_CHARGE = "charge";
+  private static OBJECTIVE_REFILL = "refill";
 
+  public roomName: string;
 
-  constructor(controllerId: Id<StructureController>) {
-    super(factory.getLogger("charger." + controllerId), ChargeController.STATE_INIT);
-    this.controllerId = controllerId;
-
-    this.logger.info('Started charging');
+  constructor(roomName: string) {
+    this.roomName = roomName;
   }
 
-  public getCharger(): Creep|undefined {
-    const chargers =  _.filter(Game.creeps, (c: Creep) => c.memory.role === ChargeController.ROLE && c.memory.meta[ChargeController.META_CONTROLLER_ID] === this.controllerId);
+  public getScoots(): Creep[] {
+    return  _.filter(Game.creeps, (c: Creep) => c.memory.role === ChargeController.ROLE && c.room.name === this.roomName);
+  }
 
-    if (chargers.length === 0) {
-      return undefined;
+  private getRoom(): Room {
+    const room = Game.rooms[this.roomName];
+    if (!room) {
+      throw new Error("Room does not exist "+ this.roomName);
     }
+    return room;
+  }
 
-    return chargers[0];
+  public getChargers(): Creep[] {
+    return _.filter(Game.creeps, (c: Creep) => c.memory.role === ChargeController.ROLE);
   }
 
   private getController(): StructureController {
-    const controller = Game.getObjectById<StructureController>(this.controllerId);
+    const controller = this.getRoom().controller;
 
     if (!controller) {
       throw new Error("Controller not found");
@@ -43,93 +40,58 @@ export default class ChargeController extends StateMachine
     return controller;
   }
 
-  protected computeState(): string {
-    const creep: Creep|undefined = this.getCharger();
-
-    if (creep === undefined) {
-      return ChargeController.STATE_INIT;
-    }
-
-    if (creep.spawning) {
-      return ChargeController.STATE_CREATING;
-    }
-
-    if (creep.store.getFreeCapacity() === 0 && creep.memory.objective === ChargeController.OBJECTIVE_FILL) {
-      return ChargeController.STATE_BUILD;
-    }
-
-    if (creep.store.getUsedCapacity() === 0 && (creep.memory.objective === ChargeController.OBJECTIVE_BUILD || !creep.memory.objective)) {
-      return ChargeController.STATE_REFILL;
-    }
-
-    if (creep.memory.objective === ChargeController.OBJECTIVE_BUILD) {
-      return ChargeController.STATE_BUILD;
-    }
-
-    if (creep.memory.objective === ChargeController.OBJECTIVE_FILL) {
-      return ChargeController.STATE_REFILL;
-    }
-
-    return ChargeController.STATE_REFILL;
+  private getClosestContainer(target: Creep|StructureController): StructureContainer|null {
+    return target.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES,
+      { filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity() > 0}
+    );
   }
 
-  private getClosestContainer(): StructureContainer|null {
-    const charger: Creep|undefined =  this.getCharger();
-    if (!charger) {
-      throw new Error("Charger not found");
+  public tick(count: number) {
+    console.log("tick charger");
+    const scoots = this.getScoots();
+    const container = this.getClosestContainer(this.getController());
+    if (!container) {
+      return;
     }
 
-    return charger.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER});
-  }
-
-  protected applyState(state: string): void {
-    switch (state) {
-      case ChargeController.STATE_INIT:
-        const controller = this.getController();
-        const creepIndex = new CreepsIndex();
-        const newCreep = creepIndex.requestHarvester(controller.pos);
-        if (!newCreep) {
-          return;
-        }
-
-        newCreep.memory.role = ChargeController.ROLE;
-        newCreep.memory.meta = newCreep.memory.meta || {};
-        newCreep.memory.meta[ChargeController.META_CONTROLLER_ID] = this.controllerId;
-        break;
-      case ChargeController.STATE_REFILL:
-        const container = this.getClosestContainer();
-        const charger = this.getCharger();
-
-        if (!charger) {
-          throw new Error('charger not found');
-        }
-
-        charger.memory.objective = ChargeController.OBJECTIVE_FILL;
-
-        if (container) {
-          const r = charger.withdraw(container, RESOURCE_ENERGY);
-          if (r === ERR_NOT_IN_RANGE) {
-            charger.moveTo(container);
-          }
-        } else {
-          this.logger.info("no container");
-        }
-        break;
-      case ChargeController.STATE_BUILD:
-        const charger1 = this.getCharger();
-        const ctrl = this.getController();
-
-        if (!charger1) {
-          throw new Error('charger not found');
-        }
-
-        charger1.memory.objective = ChargeController.OBJECTIVE_BUILD;
-
-       if (charger1.upgradeController(ctrl) === ERR_NOT_IN_RANGE) {
-          charger1.moveTo(ctrl);
-       }
-        break;
+    if (scoots.length < count) {
+      const index = new CreepsIndex();
+      const creep = index.requestCharger(container.pos);
+      if (creep) {
+        creep.memory.role = ChargeController.ROLE;
       }
     }
 
+    scoots.forEach((scoot: Creep) => {
+      if (scoot.spawning) {
+        return;
+      }
+
+      if (![ChargeController.OBJECTIVE_REFILL, ChargeController.OBJECTIVE_CHARGE].includes(scoot.memory.objective)) {
+        scoot.memory.objective = ChargeController.OBJECTIVE_REFILL;
+      }
+
+      if (scoot.store.getFreeCapacity() === 0 && scoot.memory.objective === ChargeController.OBJECTIVE_REFILL) {
+        scoot.memory.objective = ChargeController.OBJECTIVE_CHARGE;
+      }
+
+      if (scoot.store.getUsedCapacity() === 0 && (!scoot.memory.objective || scoot.memory.objective === ChargeController.OBJECTIVE_CHARGE)) {
+        scoot.memory.objective = ChargeController.OBJECTIVE_REFILL;
+      }
+
+      if (scoot.memory.objective === ChargeController.OBJECTIVE_REFILL) {
+        if (scoot.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+          scoot.moveTo(container);
+        }
+      }
+
+      if (scoot.memory.objective === ChargeController.OBJECTIVE_CHARGE) {
+        const move = scoot.upgradeController(this.getController());
+          if (move === ERR_NOT_IN_RANGE) {
+            scoot.moveTo(this.getController());
+
+          }
+      }
+    });
+  }
 }
