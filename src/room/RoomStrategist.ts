@@ -9,46 +9,54 @@ export default class RoomStrategist {
   public static STRAT_UPGRADE_CHARGER = 'charger_local';
   public static STRAT_NONE ="none";
 
-  public static nextStrategy(roomController: RoomController):string {
-    // Harvest first source
-    if (roomController.getHarvestedSourcesCount() === 0 && roomController.getFreeSources().length > 0 && roomController.getFirstHarvesterState() === null) {
-      return this.STRAT_HARVEST_FIRST_SOURCE;
-    }
+  public static nextStrategy(roomController: RoomController) {
 
-    if (roomController.getFirstHarvesterState() !== HarvestSource.STATE_WORKING) {
-      return this.STRAT_NONE;
+    roomController.state.expectedHarvesters = 1;
+
+    // Wait until the first source is fully harvested
+    if (!roomController.firstSourceFullyHarvested()) {
+      return;
     }
 
     // Once the first source is fully harvested, we start charging the controller
-    roomController.chargerCount = 3;
+    roomController.state.expectedChargerCount = 1;
 
     // We also setup repair
-    if (!roomController.hasRepair() &&  roomController.getFirstHarvesterState() === HarvestSource.STATE_WORKING) {
-      return this.STRAT_BUILD_REPAIR;
-    }
+    roomController.state.expectedRepairers = 1;
 
     // We fully harvest all source
-    if (roomController.getFreeSources().length !== 0) {
-      return this.STRAT_HARVEST_ALL_SOURCES;
+   roomController.state.expectedHarvesters = roomController.getAllSourcesCount();
+
+   // Wait for all the sources to be harvested
+   if (roomController.getFreeSourcesCount() !== 0) {
+     return;
+   }
+
+    roomController.state.expectedChargerCount = 3;
+    roomController.state.expectedLogisticCount = 2;
+    roomController.state.expectedBuilders = 1;
+    roomController.state.expectedRepairers = 1;
+
+    if (roomController.getStoredEnergy() < 200 ) {
+      roomController.state.expectedLogisticCount = 1;
     }
 
-    // Add logistic when containers start to filling up
-    const energy = roomController.getStoredEnergy();
-
-    if (energy < 200) {
-      roomController.logisticCount = 0;
-    }
-    if (energy > 200) {
-      roomController.logisticCount = 2;
-    }
-    if (energy > 400) {
-      roomController.logisticCount = 3;
+    if (roomController.getStoredEnergy() > 2000) {
+      roomController.state.expectedChargerCount = 4;
+      roomController.state.expectedLogisticCount = 5;
     }
 
-    if (energy > 800) {
-      roomController.logisticCount = 4;
+    // create the controller container
+    roomController.state.ensureControllerContainer = true;
+
+    if (!roomController.isControllerContainerCreated()) {
+     return;
     }
 
-    return this.STRAT_NONE;
+    roomController.state.ensureRoadNetwork = true;
+
+    if (Object.keys(Game.rooms).length < Game.gcl.level) {
+      roomController.state.scoot = true;
+    }
   }
 }

@@ -9,13 +9,14 @@ export default class Builder {
   private static OBJECTIVE_FILL = "filling";
   private static OBJECTIVE_REFILL = "refill";
 
-  public roomName: string;
+  private roomName: string;
   private logger: Logger;
 
   constructor(roomName: string) {
     this.roomName = roomName;
     this.logger = factory.getLogger("builder." + roomName);
   }
+
 
   public getBuilders(): Creep[] {
     return  _.filter(Game.creeps, (c: Creep) => c.memory.role === Builder.ROLE && c.room.name === this.roomName);
@@ -33,13 +34,31 @@ export default class Builder {
     return this.getRoom().find(FIND_CONSTRUCTION_SITES).length;
   }
 
-  protected getWorkPlace() : ConstructionSite|null {
-    const sites = this.getRoom().find(FIND_CONSTRUCTION_SITES);
-    if (sites.length === 0) {
-      return null;
+  protected getWorkPlace(pos?: RoomPosition) : ConstructionSite|null {
+    if (pos) {
+      return pos.findClosestByPath(FIND_CONSTRUCTION_SITES, {filter: (a: any) => a.structureType !== STRUCTURE_ROAD}) ||
+        pos.findClosestByPath(FIND_CONSTRUCTION_SITES);
     }
 
-    return sites[0];
+    let res = this.getRoom().find(
+      FIND_CONSTRUCTION_SITES,
+      {filter: (a: any) =>
+        a.structureType !== STRUCTURE_ROAD}
+      );
+
+    if (res.length !== 0) {
+      return res[0];
+    }
+
+    res = this.getRoom().find(
+      FIND_CONSTRUCTION_SITES,
+    );
+
+    if (res.length !== 0) {
+      return res[0];
+    }
+
+    return null;
   }
 
   protected hasSource():boolean {
@@ -54,37 +73,40 @@ export default class Builder {
     });
   }
 
-  public build(): boolean {
+  public build(count: number) {
+    if (count === 0) {
+      return;
+    }
+
     const workPlace = this.getWorkPlace();
 
     const builders = this.getBuilders();
 
     if (!workPlace) {
-      this.logger.info('No work to do');
-      builders.forEach((creep: Creep) => {
-        creep.suicide()
-      });
-      return false;
+      this.logger.info('Nothing to build, stand by');
+      return;
     }
 
     if (!this.hasSource()) {
       this.logger.info('No source to build from');
-
-      return false;
+      return;
     }
 
-
-
-    if (builders.length < 3 ) {
+    if (builders.length < count) {
       const index = new CreepsIndex();
+
       const creep = index.requestBuilder(workPlace.pos);
+
       if (creep) {
         creep.memory.role = Builder.ROLE;
       }
     }
 
     builders.forEach((scoot: Creep) => {
-      this.logger.info('Builder in progress');
+      if (scoot.spawning) {
+        return;
+      }
+
       if (scoot.store.getFreeCapacity() === 0 && scoot.memory.objective === Builder.OBJECTIVE_REFILL) {
         scoot.memory.objective = Builder.OBJECTIVE_FILL;
       }
@@ -108,7 +130,5 @@ export default class Builder {
         }
       }
     });
-
-    return true;
   }
 }

@@ -3,21 +3,19 @@ import _ from "lodash";
 export default class Scoot {
 
   public static ROLE = 'scoot';
-  public static STATE_TRAVELLING = 'travelling';
-  public static STATE_INIT = 'init';
-  public static META_MAP = 'map';
+  public static META_VISITED_ROOMS = 'visited';
+  public static META_DESTINATION = 'destination';
 
   private scootId: Id<Creep>;
-  private visitedRooms: string[];
-  private map: string[];
 
   constructor(scoot: Creep) {
     this.scootId = scoot.id;
-    scoot.memory.role =  Scoot.ROLE;
-    this.visitedRooms = [scoot.room.name];
-    this.map = [];
 
-    this.completeMap();
+    scoot.memory.role =  Scoot.ROLE;
+    this.getScoot().memory.meta = this.getScoot().memory.meta || {};
+    this.getScoot().memory.meta[Scoot.META_VISITED_ROOMS] = this.getScoot().memory.meta[Scoot.META_VISITED_ROOMS] || [];
+
+    this.getScoot().memory.meta[Scoot.META_VISITED_ROOMS].push(scoot.room.name);
   }
 
   public getScoot() :Creep {
@@ -28,9 +26,17 @@ export default class Scoot {
     return scoot;
   }
 
-  private completeMap() {
+  private getDestination() {
+    if (
+      this.getScoot().room.name !== this.getScoot().memory.meta[Scoot.META_DESTINATION] &&
+      this.getScoot().memory.meta[Scoot.META_DESTINATION] !== undefined) {
+      return this.getScoot().memory.meta[Scoot.META_DESTINATION];
+    }
+
+    this.getScoot().memory.meta[Scoot.META_VISITED_ROOMS].push(this.getScoot().room.name);
+
     const roomRegex = /^W([0-9]+)N([0-9]+)$/g;
-    const match = roomRegex.exec(this.getScoot().name);
+    const match = roomRegex.exec(this.getScoot().room.name);
     if (match === null) {
       return;
     }
@@ -38,41 +44,56 @@ export default class Scoot {
       const w:number = Number(match[1]);
       const n:number = Number(match[2]);
 
+      let map = [];
+      map.push("W" + (w - 1) + "N" + (n));
+      map.push("W" + w + "N" + (n - 1));
+      map.push("W" + w + "N" + (n + 1));
+      map.push("W" + (w + 1) + "N" + (n));
 
-      this.map.push("W" + (w - 1) + "N" + (n));
-      this.map.push("W" + (w - 1) + "N" + (n + 1));
-
-      this.map.push("W" + (w - 1) + "N" + (n - 1));
-
-      this.map.push("W" + w + "N" + (n - 1));
-      this.map.push("W" + w + "N" + (n + 1));
-
-      this.map.push("W" + (w + 1) + "N" + (n - 1));
-      this.map.push("W" + (w + 1) + "N" + (n));
-      this.map.push("W" + (w + 1) + "N" + (n + 1));
-
-      this.map = this.map.filter((elem, index, self) => {
-        return index === self.indexOf(elem) && !this.visitedRooms.includes(elem);
+      map = map.filter((elem, index, self) => {
+        return index === self.indexOf(elem) && !this.getScoot().memory.meta[Scoot.META_VISITED_ROOMS].includes(elem);
       });
+
+      map = Scoot.shuffleArray(map);
+
+      if (map.length === 0) {
+        return undefined;
+      }
+
+      this.getScoot().memory.meta[Scoot.META_DESTINATION] = map[0];
+
+      return map[0];
     }
   }
 
-  public getDestination(): string|undefined {
-    if (this.map.length === 0) {
-      return undefined;
+  private static shuffleArray(array: string[]) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const temp = array[i];
+      array[i] = array[j];
+      array[j] = temp;
     }
-    return this.map[0];
+    return array;
   }
-
   public static getAllScoots(): Creep[] {
     return  _.filter(Game.creeps, (c: Creep) => c.memory.role === Scoot.ROLE);
   }
 
   public visit() {
-    this.completeMap();
+    const controller = this.getScoot().room.controller;
+
+    if (controller && controller.owner === undefined) {
+      if (!this.getScoot().claimController(controller)) {
+        this.getScoot().moveTo(controller.pos);
+      }
+      return;
+    }
+
     const destination = this.getDestination();
     if (destination) {
-      this.getScoot().moveTo(new RoomPosition(15,15, destination));
+      if(this.getScoot().moveTo(new RoomPosition(10,10, destination)) === ERR_NO_PATH){
+        this.getScoot().memory.meta[Scoot.META_VISITED_ROOMS].push(this.getScoot().room.name);
+      }
     }
   }
 

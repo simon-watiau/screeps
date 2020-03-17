@@ -1,9 +1,10 @@
 import _ from 'lodash';
+import {Logger} from "typescript-logging";
 import CreepsIndex from "../population/CreepsIndex";
 import StateMachine from "../StateMachine";
 import {factory} from "../utils/ConfigLog4J";
 
-export default class HarvestSource extends StateMachine {
+export default class HarvestSource {
   private static ROLE: string = 'harvester';
   private static META_SOURCE_ID: string = 'source_id';
 
@@ -15,8 +16,7 @@ export default class HarvestSource extends StateMachine {
   public static STATE_INIT = 'INIT';
 
   private sourceId: Id<Source>;
-
-  public latestState: string = HarvestSource.STATE_INIT;
+  private logger: Logger;
 
   public getHarvester(): Creep|undefined {
     const harvesters =  _.filter(Game.creeps, (c: Creep) => c.memory.role === HarvestSource.ROLE && c.memory.meta[HarvestSource.META_SOURCE_ID] === this.sourceId);
@@ -28,9 +28,33 @@ export default class HarvestSource extends StateMachine {
     return harvesters[0];
   }
 
+  public getSourceId(): Id<Source> {
+    return this.sourceId;
+  }
+
+  public static getFreeSources(room: Room, harvesters: HarvestSource[]): Source[] {
+    const harvestedSourcesIds = harvesters.map((harvester: HarvestSource) => {
+        return harvester.getSourceId();
+    });
+
+    return room.find(FIND_SOURCES).sort((s1:Source, s2: Source): number => {
+      if ( s1.id > s2.id ){
+        return -1;
+      }
+      if ( s1.id < s2.id ){
+        return 1;
+      }
+      return 0;
+    }).filter((source: Source): boolean => {
+      return !harvestedSourcesIds.includes(source.id);
+    });
+  }
+
   constructor(sourceId: Id<Source>) {
-    super(factory.getLogger("harvester." + sourceId), HarvestSource.STATE_INIT);
+   this.logger = factory.getLogger("harvester." + sourceId);
+
     this.sourceId = sourceId;
+
     this.logger.info('Started harvesting');
   }
 
@@ -43,6 +67,10 @@ export default class HarvestSource extends StateMachine {
 
     return creep;
   }
+
+  public isFullyHarvested(): boolean {
+    return !!this.findCloseContainer();
+   }
 
   private getSource(): Source {
     const source = Game.getObjectById<Source>(this.sourceId);
@@ -71,125 +99,83 @@ export default class HarvestSource extends StateMachine {
     return undefined;
   }
 
-  private isContainerReady(): boolean {
+  private findCloseContainer(): StructureContainer|undefined {
     const source = this.getSource();
 
-    return source.pos.findInRange(FIND_STRUCTURES, 1, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER}).length !== 0;
+    const containers = source.pos.findInRange<StructureContainer>(FIND_STRUCTURES, 1, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER});
+
+    if (containers.length > 0) {
+      return containers[0];
+    }
+
+    return undefined;
   }
 
-  private isConstructionReady(): boolean {
+  private findCloseContainerConstruction(): ConstructionSite|undefined {
     const source = this.getSource();
-    return source.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, { filter: (a: ConstructionSite) => a.structureType === STRUCTURE_CONTAINER}).length !== 0;
+    const sites = source.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, { filter: (a: ConstructionSite) => a.structureType === STRUCTURE_CONTAINER});
+
+    if (sites.length > 0) {
+      return sites[0];
+    }
+
+    return undefined;
   }
 
-  protected computeState(): string {
-    const creep: Creep|undefined = this.getHarvester();
+  public harvest() {
 
-    if (creep === undefined) {
-      return HarvestSource.STATE_INIT;
-    }
+    const harvester = this.getHarvester();
+    const closeContainer = this.findCloseContainer();
+    const closeConstructionSite = this.findCloseContainerConstruction();
 
     const source = this.getSource();
 
-    const containerReady = this.isContainerReady();
-    if (containerReady && !creep.spawning && creep.pos.inRangeTo(this.getTarget(), 0)) {
-      return HarvestSource.STATE_WORKING;
+    if (!harvester) {
+      const creepIndex = new CreepsIndex();
+      let level = CreepsIndex.LVL_HARVESTER_1;
+      if (closeContainer) {
+        level = CreepsIndex.LVL_HARVESTER_2;
+      }
+      const newCreep = creepIndex.requestHarvester(this.getSource().pos, level);
+      if (newCreep) {
+        newCreep.memory.role = HarvestSource.ROLE;
+        newCreep.memory.meta = newCreep.memory.meta || {};
+        newCreep.memory.meta[HarvestSource.META_SOURCE_ID] = source.id;
+      }
+
+      return;
     }
 
-    const constructionReady = this.isConstructionReady();
-    if (constructionReady && !creep.spawning && creep.pos.inRangeTo(this.getTarget(), 0)) {
-      return HarvestSource.STATE_CONSTRUCTING;
+    if (harvester.spawning) {
+      return;
     }
 
-    const target = this.getTarget();
-    let inRange:boolean;
-
-    if (target) {
-      inRange = creep.pos === target.pos;
-    }else {
-      inRange = creep.pos.inRangeTo(source.pos, 1);
+    if (closeContainer) {
+      if (!harvester.pos.isEqualTo(closeContainer.pos)) {
+        harvester.moveTo(closeContainer.pos);
+        return;
+      }
     }
 
-    if (!creep.spawning && !inRange) {
-      return HarvestSource.STATE_HARVESTER_CREATED;
+    if (closeConstructionSite) {
+      if (!harvester.pos.isEqualTo(closeConstructionSite.pos)) {
+        harvester.moveTo(closeConstructionSite.pos);
+        return;
+      }
     }
 
-    if (!creep.spawning && inRange) {
-      return HarvestSource.STATE_READY_TO_START;
-    }
-
-    if (creep.spawning) {
-      return HarvestSource.STATE_CREATING_CREEP;
-    }
-
-    throw  new Error("Invalid state");
-  }
-
-  protected applyState(state: string): void {
-    switch (state) {
-      case HarvestSource.STATE_HARVESTER_CREATED:
-        const target = this.getTarget();
-        if (target) {
-          this.getCreep().moveTo(target.pos);
-        } else {
-          this.getCreep().moveTo(this.getSource().pos);
+    if (harvester.store.getFreeCapacity() > 0 || harvester.store.getCapacity() === null) {
+        if (harvester.harvest(source) === ERR_NOT_IN_RANGE) {
+          harvester.moveTo(source.pos);
         }
+    }
 
-        break;
-      case HarvestSource.STATE_READY_TO_START:
-        this.getCreep().pos.createConstructionSite(STRUCTURE_CONTAINER);
-        break;
-      case HarvestSource.STATE_CONSTRUCTING:
-        const creep1 = this.getCreep();
-        if (creep1.store.getFreeCapacity() > 0) {
-          creep1.harvest(this.getSource());
-          this.logger.info('Harvesting for construction: '+ creep1.store.getUsedCapacity() + '/'+ creep1.store.getCapacity());
-        }else {
-          if (creep1.build(this.getTarget()) !== OK) {
-            throw new Error("Failed to build");
-          }
-          const site:ConstructionSite = this.getTarget();
-          this.logger.info('Building for construction: '+ site.progress + '/'+ site.progressTotal)
-        }
-        break;
-      case HarvestSource.STATE_WORKING:
-        const creep2 = this.getCreep();
-        if (creep2.store.getFreeCapacity() > 0 || creep2.store.getCapacity() === null) {
-          creep2.harvest(this.getSource());
-          this.logger.info('Harvesting for container: '+ creep2.store.getUsedCapacity() + '/'+ creep2.store.getCapacity());
-          if (creep2.store.getCapacity() === 0) {
-            const site: StructureContainer = this.getTarget();
-            this.logger.info('Transfer for container: ' + site.store.getUsedCapacity() + '/' + site.store.getCapacity());
-          }
-        }else {
-          const depositResult = creep2.transfer(this.getTarget(), RESOURCE_ENERGY);
-          if (depositResult !== OK && depositResult !== ERR_FULL && depositResult !== ERR_NOT_ENOUGH_ENERGY) {
-            throw new Error("Failed to deposit " + depositResult);
-          }
-          const site:StructureContainer = this.getTarget();
-          this.logger.info('Transfer for container: '+ site.store.getUsedCapacity() + '/'+ site.store.getCapacity());
-        }
-        break;
-      case HarvestSource.STATE_INIT:
-        const source = this.getSource();
-          const creepIndex = new CreepsIndex();
-          let level = CreepsIndex.LVL_HARVESTER_1;
-          if (this.isContainerReady()) {
-            level = CreepsIndex.LVL_HARVESTER_2;
-          }
-
-          const newCreep = creepIndex.requestHarvester(source.pos, level);
-
-          if (!newCreep) {
-            return;
-          }
-
-          this.logger.info('Harvester created');
-
-          newCreep.memory.role = HarvestSource.ROLE;
-          newCreep.memory.meta = newCreep.memory.meta || {};
-          newCreep.memory.meta[HarvestSource.META_SOURCE_ID] = source.id;
-        break;
+    if (harvester.store.getFreeCapacity() === 0) {
+      if (closeConstructionSite) {
+        harvester.build(closeConstructionSite);
+      }else if (closeContainer) {
+        harvester.transfer(closeContainer, RESOURCE_ENERGY);
+      }
     }
   }
 }

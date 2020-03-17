@@ -10,6 +10,7 @@ interface CreepMemory {
 interface Memory {
   uuid: number;
   log: any;
+  test:any;
   terraformedRoom: {
     [roomName: string]: RoomMemory
   }

@@ -1,34 +1,85 @@
 import _ from "lodash";
+import {Logger} from "typescript-logging";
 import CreepsIndex from "../population/CreepsIndex";
 import StateMachine from "../StateMachine";
 import {factory} from "../utils/ConfigLog4J";
 
-export default class Repair extends StateMachine {
-  public static STATE_INIT = 'init';
-  public static STATE_CREATING = 'creating';
-  public static STATE_REPAIR = 'repair';
-  public static STATE_REFILL = 'refill';
-
+export default class Repair {
   public static ROLE = 'repair';
 
   private static OBJECTIVE_FILL = "filling";
   private static OBJECTIVE_REPAIR = "repair";
 
   public roomName: string;
+  private logger: Logger;
 
   constructor(roomName: string) {
-    super(factory.getLogger("repair." + roomName), Repair.STATE_INIT);
+    this.logger = factory.getLogger("repair." + roomName);
     this.roomName = roomName;
   }
 
-  public getRepair(): Creep|undefined {
-    const repaires =  _.filter(Game.creeps, (c: Creep) => c.memory.role === Repair.ROLE && c.room.name === this.roomName);
+  public getRepaires(): Creep[] {
+    return _.filter(Game.creeps, (c: Creep) => c.memory.role === Repair.ROLE && c.room.name === this.roomName);
+  }
 
-    if (repaires.length === 0) {
-      return undefined;
+  public repair(count: number) {
+    if (count === 0) {
+      return;
     }
 
-    return repaires[0];
+    const repairers = this.getRepaires();
+
+    const toRepair = this.findStructureToRepair();
+
+    if (!toRepair) {
+      this.logger.info("Nothing to repair, stand by");
+      return;
+    }
+
+    if (repairers.length < count) {
+      const index = new CreepsIndex();
+      const creep = index.requestRepair(toRepair.pos);
+
+      if (creep) {
+        creep.memory.role = Repair.ROLE;
+      }
+    }
+
+    repairers.forEach((repairer: Creep) => {
+      if (repairer.spawning) {
+        return;
+      }
+
+      const source = this.getClosestContainer(repairer);
+
+      if (!source) {
+        this.logger.info("No source to repair from, skipping");
+
+        return;
+      }
+
+      if (repairer.store.getFreeCapacity() === 0 && repairer.memory.objective === Repair.OBJECTIVE_FILL) {
+        repairer.memory.objective = Repair.OBJECTIVE_REPAIR;
+      }
+
+      if (repairer.store.getUsedCapacity() === 0 && (repairer.memory.objective === Repair.OBJECTIVE_REPAIR || !repairer.memory.objective)) {
+        repairer.memory.objective = Repair.OBJECTIVE_FILL;
+      }
+
+      if (repairer.memory.objective === Repair.OBJECTIVE_REPAIR) {
+        const r = repairer.repair(toRepair);
+        if (r === ERR_NOT_IN_RANGE) {
+          repairer.moveTo(toRepair);
+        }
+      }
+
+      if (repairer.memory.objective === Repair.OBJECTIVE_FILL) {
+        const r = repairer.withdraw(source, RESOURCE_ENERGY);
+        if (r === ERR_NOT_IN_RANGE) {
+          repairer.moveTo(source);
+        }
+      }
+    });
   }
 
   private getRoom(): Room {
@@ -51,107 +102,9 @@ export default class Repair extends StateMachine {
     return targets[0];
   }
 
-  protected computeState(): string {
-    const creep: Creep|undefined = this.getRepair();
-
-    if (creep === undefined) {
-      return Repair.STATE_INIT;
-    }
-
-    if (creep.spawning) {
-      return Repair.STATE_CREATING;
-    }
-
-    if (creep.store.getFreeCapacity() === 0 && creep.memory.objective === Repair.OBJECTIVE_FILL) {
-      return Repair.STATE_REPAIR;
-    }
-
-    if (creep.store.getUsedCapacity() === 0 && (creep.memory.objective === Repair.OBJECTIVE_REPAIR || !creep.memory.objective)) {
-      return Repair.STATE_REFILL;
-    }
-
-    if (creep.memory.objective === Repair.OBJECTIVE_REPAIR) {
-      return Repair.OBJECTIVE_REPAIR;
-    }
-
-    if (creep.memory.objective === Repair.OBJECTIVE_FILL) {
-      return Repair.STATE_REFILL;
-    }
-
-    return Repair.STATE_REFILL;
-  }
-
-  private getClosestContainer(): StructureContainer|null {
-    const repair: Creep|undefined =  this.getRepair();
-    if (!repair) {
-      throw new Error("Repair not found");
-    }
-
-    return repair.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES, {
+  private getClosestContainer(creep: Creep): StructureContainer|null {
+    return creep.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES, {
       filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity() > 0
     });
-  }
-
-  protected applyState(state: string): void {
-    switch (state) {
-      case Repair.STATE_INIT:
-        if (!this.findStructureToRepair()) {
-          this.logger.info('Nothing to repair');
-          return;
-        }
-
-        const creepIndex = new CreepsIndex();
-
-        const newCreep = creepIndex.requestRepair(
-          new RoomPosition(10, 10, this.roomName)
-        );
-
-        if (!newCreep) {
-          return;
-        }
-
-        newCreep.memory.role = Repair.ROLE;
-        newCreep.memory.meta = newCreep.memory.meta || {};
-        break;
-      case Repair.STATE_REFILL:
-        const container = this.getClosestContainer();
-        const repair = this.getRepair();
-
-        if (!repair) {
-          throw new Error('Repair not found');
-        }
-
-        repair.memory.objective = Repair.OBJECTIVE_FILL;
-
-        if (container) {
-          const r = repair.withdraw(container, RESOURCE_ENERGY);
-          if (r === ERR_NOT_IN_RANGE) {
-            repair.moveTo(container);
-          }
-        } else {
-          this.logger.info("no container");
-        }
-        break;
-      case Repair.STATE_REPAIR:
-        const repair1 = this.getRepair();
-        const toRepair1 = this.findStructureToRepair();
-
-        if (!repair1) {
-          throw new Error('repair not found');
-        }
-
-        if (!toRepair1) {
-          this.logger.info('Nothing to repair');
-          repair1.suicide();
-          return;
-        }
-
-        repair1.memory.objective = Repair.OBJECTIVE_REPAIR;
-
-        if (repair1.repair(toRepair1) === ERR_NOT_IN_RANGE) {
-          repair1.moveTo(toRepair1);
-        }
-        break;
-    }
   }
 }

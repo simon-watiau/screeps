@@ -1,5 +1,7 @@
 import _ from "lodash";
+import {Logger} from "typescript-logging";
 import CreepsIndex from "../population/CreepsIndex";
+import {factory} from "../utils/ConfigLog4J";
 
 export default class ChargeController
 {
@@ -9,47 +11,21 @@ export default class ChargeController
   private static OBJECTIVE_REFILL = "refill";
 
   public roomName: string;
+  private logger: Logger;
 
   constructor(roomName: string) {
     this.roomName = roomName;
-  }
-
-  public getScoots(): Creep[] {
-    return  _.filter(Game.creeps, (c: Creep) => c.memory.role === ChargeController.ROLE && c.room.name === this.roomName);
-  }
-
-  private getRoom(): Room {
-    const room = Game.rooms[this.roomName];
-    if (!room) {
-      throw new Error("Room does not exist "+ this.roomName);
-    }
-    return room;
+    this.logger = factory.getLogger("builder." + roomName);
   }
 
   public getChargers(): Creep[] {
-    return _.filter(Game.creeps, (c: Creep) => c.memory.role === ChargeController.ROLE);
+    return  _.filter(Game.creeps, (c: Creep) => c.memory.role === ChargeController.ROLE && c.room.name === this.roomName);
   }
 
-  private getController(): StructureController {
-    const controller = this.getRoom().controller;
-
-    if (!controller) {
-      throw new Error("Controller not found");
-    }
-
-    return controller;
-  }
-
-  private getClosestContainer(target: Creep|StructureController): StructureContainer|null {
-    return target.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES,
-      { filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity() > 0}
-    );
-  }
-
-  public tick(count: number) {
-    console.log("tick charger");
-    const scoots = this.getScoots();
+  public charge(count: number) {
+    const scoots = this.getChargers();
     const container = this.getClosestContainer(this.getController());
+
     if (!container) {
       return;
     }
@@ -86,12 +62,41 @@ export default class ChargeController
       }
 
       if (scoot.memory.objective === ChargeController.OBJECTIVE_CHARGE) {
-        const move = scoot.upgradeController(this.getController());
-          if (move === ERR_NOT_IN_RANGE) {
-            scoot.moveTo(this.getController());
+        const upgradeRes = scoot.upgradeController(this.getController());
 
-          }
+        if (upgradeRes === ERR_NOT_IN_RANGE) {
+          scoot.moveTo(this.getController());
+        }
+
+        if (upgradeRes !== OK && upgradeRes !== ERR_NOT_IN_RANGE) {
+          this.logger.error("Failed to charge: " + upgradeRes);
+        }
       }
     });
+  }
+
+  private getRoom(): Room {
+    const room = Game.rooms[this.roomName];
+    if (!room) {
+      throw new Error("Room does not exist "+ this.roomName);
+    }
+
+    return room;
+  }
+
+  private getController(): StructureController {
+    const controller = this.getRoom().controller;
+
+    if (!controller) {
+      throw new Error("Controller not found");
+    }
+
+    return controller;
+  }
+
+  private getClosestContainer(target: Creep|StructureController): StructureContainer|null {
+    return target.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES,
+      { filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity() > 0}
+    );
   }
 }

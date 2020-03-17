@@ -1,5 +1,7 @@
 import _ from "lodash";
+import {Logger} from "typescript-logging";
 import CreepsIndex from "../population/CreepsIndex";
+import {factory} from "../utils/ConfigLog4J";
 
 export default class EnergyLogistic {
   public static ROLE = 'logistic';
@@ -8,88 +10,31 @@ export default class EnergyLogistic {
   private static OBJECTIVE_REFILL = "refill";
 
   public roomName: string;
+  private logger: Logger;
 
   constructor(roomName: string) {
     this.roomName = roomName;
+    this.logger = factory.getLogger("builder." + roomName);
   }
 
-  public getScoots(): Creep[] {
+  public getLogistics(): Creep[] {
     return  _.filter(Game.creeps, (c: Creep) => c.memory.role === EnergyLogistic.ROLE && c.room.name === this.roomName);
   }
 
-  private getRoom(): Room {
-    const room = Game.rooms[this.roomName];
-    if (!room) {
-      throw new Error("Room does not exist");
-    }
-    return room;
-  }
-
-  private getSpawn(): StructureSpawn {
-    const spawns = this.getRoom().find(FIND_MY_SPAWNS);
-    if (spawns.length === 0) {
-      throw new Error("no spawn");
+  public move(count: number) {
+    if (count === 0) {
+      return;
     }
 
-    return spawns[0];
-  }
-
-  protected getDestination() : StructureContainer|StructureSpawn|StructureExtension|null {
-    const controller = this.getRoom().controller;
-    if (!controller) {
-      throw new Error("no Controller");
-    }
-    if (this.getSpawn().store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-      return this.getSpawn();
-    }
-
-    const extension = controller.pos.findClosestByPath<StructureExtension>(FIND_STRUCTURES, {
-      filter: (a: any) => a.structureType === STRUCTURE_EXTENSION && a.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-    });
-
-    if (extension) {
-      return extension;
-    }
-
-    return controller.pos.findClosestByPath<StructureContainer>(FIND_STRUCTURES, {
-      filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getFreeCapacity() > 0
-    });
-  }
-
-  protected getSource(source: StructureContainer|StructureSpawn|StructureExtension, creep: Creep) : StructureContainer|null {
-    const controller = this.getRoom().controller;
-    if (!controller) {
-      throw new Error("no Controller");
-    }
-
-     return creep.pos.findClosestByPath<StructureContainer>(FIND_STRUCTURES, {
-      filter: (a: any) => a.structureType === STRUCTURE_CONTAINER &&
-        a.store.getUsedCapacity() > 200 &&
-        (
-          controller.pos.getRangeTo(a.pos) > controller.pos.getRangeTo(source.pos) ||
-          source instanceof StructureSpawn || source instanceof StructureExtension
-        )
-    });
-  }
-
-  public shutdown(): void {
-    const scoots = this.getScoots();
-
-    scoots.forEach((creep: Creep) => {
-      creep.suicide();
-    });
-  }
-
-  public move(count: number): boolean {
-    const scoots = this.getScoots();
+    const scoots = this.getLogistics();
 
     const destination = this.getDestination();
 
     if (!destination) {
-      return false;
+      this.logger.info("No destination to transfer to");
+
+      return;
     }
-
-
 
     if (scoots.length < count) {
       const index = new CreepsIndex();
@@ -97,18 +42,16 @@ export default class EnergyLogistic {
       if (creep) {
         creep.memory.role = EnergyLogistic.ROLE;
       }
+      console.log("Spawn", creep);
     }
 
-    let didAction = false;
-
     scoots.forEach((scoot: Creep) => {
-      const source = this.getSource(destination, scoot);
+      const source = this.getSource(destination);
       if (!source) {
-        didAction = didAction || false;
+        this.logger.info("No source to withdraw from");
+
         return;
       }
-
-      didAction = true;
 
       if (scoot.store.getFreeCapacity() === 0 && scoot.memory.objective === EnergyLogistic.OBJECTIVE_REFILL) {
         scoot.memory.objective = EnergyLogistic.OBJECTIVE_FILL;
@@ -130,7 +73,79 @@ export default class EnergyLogistic {
         }
       }
     });
+  }
 
-    return didAction;
+  private getRoom(): Room {
+    const room = Game.rooms[this.roomName];
+    if (!room) {
+      throw new Error("Room does not exist");
+    }
+    return room;
+  }
+
+  private getSpawn(): StructureSpawn|undefined {
+    const spawns = this.getRoom().find(FIND_MY_SPAWNS);
+    if (spawns.length === 0) {
+      return undefined;
+    }
+
+    return spawns[0];
+  }
+
+  private getDestination() : StructureContainer|StructureSpawn|StructureExtension|null {
+    const controller = this.getRoom().controller;
+
+    const spawn = this.getSpawn();
+    if (spawn && spawn.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+      return spawn;
+    }
+
+    const extensions = this.getRoom().find<StructureExtension>(FIND_STRUCTURES, {
+      filter: (a: any) => a.structureType === STRUCTURE_EXTENSION && a.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+    });
+
+    if (extensions.length > 0) {
+      return extensions[0];
+    }
+
+    if (controller) {
+      return controller.pos.findClosestByPath<StructureContainer>(FIND_STRUCTURES, {
+        filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getFreeCapacity() > 0
+      });
+    }
+
+    return null;
+  }
+
+  private getSource(source: StructureContainer|StructureSpawn|StructureExtension) : StructureContainer|null {
+    const controller = this.getRoom().controller;
+    if (!controller) {
+      throw new Error("No controller in this room");
+    }
+
+     const sources = this.getRoom().find<StructureContainer>(FIND_STRUCTURES, {
+      filter: (a: any) => a.structureType === STRUCTURE_CONTAINER &&
+        a.store.getUsedCapacity() > 200 &&
+        (
+          (controller && controller.pos.getRangeTo(a.pos) > controller.pos.getRangeTo(source.pos)) ||
+          source instanceof StructureSpawn || source instanceof StructureExtension
+        )
+     });
+
+    sources.sort((s1: StructureContainer, s2:StructureContainer): number => {
+      if ( s1.id > s2.id ){
+        return -1;
+      }
+      if ( s1.id < s2.id ){
+        return 1;
+      }
+      return 0;
+    });
+
+    if (sources.length > 0) {
+      return sources[0];
+    }
+
+    return null;
   }
 }
