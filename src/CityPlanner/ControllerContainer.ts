@@ -10,7 +10,6 @@ export default class SourcesContainer {
     const hasContainer = controller.pos.findInRange(FIND_STRUCTURES, 3, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER}).length !== 0;
 
     if (hasContainer || hasConstructionSite) {
-      console.log("construction exist");
       return;
     }
 
@@ -18,8 +17,6 @@ export default class SourcesContainer {
     if (containerPos) {
       containerPos.createConstructionSite(STRUCTURE_CONTAINER);
     }
-
-    console.log("POS", containerPos);
   }
 
   private static findPosition(position: RoomPosition) {

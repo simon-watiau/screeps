@@ -62,6 +62,8 @@ class RoomController {
       scoot: false
     };
 
+    CreepsIndex.getInstance().init();
+
     RoomStrategist.nextStrategy(this);
 
     while (this.harvesters.length < this.state.expectedHarvesters) {
@@ -105,17 +107,18 @@ class RoomController {
       if (existingScoots.length !== 0) {
         this.scoot = new Scoot(existingScoots[0]);
       }else if (this.state.scoot) {
-        const index = new CreepsIndex();
-        const claim = index.requestClaim(new RoomPosition(15,15, this.roomName));
-        if (claim) {
-          this.scoot = new Scoot(claim);
-        }
+        const index = CreepsIndex.getInstance();
+        index.requestClaim(new RoomPosition(15,15, this.roomName), creep => {
+          this.scoot = new Scoot(creep);
+        });
       }
     }
 
     if (this.scoot) {
       this.scoot.visit();
     }
+
+    CreepsIndex.getInstance().resolve();
   }
 
   public isControllerContainerCreated(): boolean {
@@ -183,7 +186,7 @@ class RoomController {
     this.harvesters.forEach((harvest: HarvestSource) => {
       harvested =  harvested || harvest.isFullyHarvested();
     });
-    console.log(harvested);
+
     return harvested;
   }
 

@@ -14,7 +14,7 @@ export default class EnergyLogistic {
 
   constructor(roomName: string) {
     this.roomName = roomName;
-    this.logger = factory.getLogger("builder." + roomName);
+    this.logger = factory.getLogger("logistic." + roomName);
   }
 
   public getLogistics(): Creep[] {
@@ -37,12 +37,10 @@ export default class EnergyLogistic {
     }
 
     if (scoots.length < count) {
-      const index = new CreepsIndex();
-      const creep = index.requestLogistic(destination.pos);
-      if (creep) {
+      const index = CreepsIndex.getInstance();
+      index.requestLogistic(destination.pos, creep => {
         creep.memory.role = EnergyLogistic.ROLE;
-      }
-      console.log("Spawn", creep);
+      });
     }
 
     scoots.forEach((scoot: Creep) => {

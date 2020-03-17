@@ -37,12 +37,10 @@ export default class Repair {
     }
 
     if (repairers.length < count) {
-      const index = new CreepsIndex();
-      const creep = index.requestRepair(toRepair.pos);
-
-      if (creep) {
+      const index = CreepsIndex.getInstance();
+      index.requestRepair(toRepair.pos, creep => {
         creep.memory.role = Repair.ROLE;
-      }
+      });
     }
 
     repairers.forEach((repairer: Creep) => {

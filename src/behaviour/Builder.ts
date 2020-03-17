@@ -93,13 +93,10 @@ export default class Builder {
     }
 
     if (builders.length < count) {
-      const index = new CreepsIndex();
-
-      const creep = index.requestBuilder(workPlace.pos);
-
-      if (creep) {
+      const index = CreepsIndex.getInstance();
+      index.requestBuilder(workPlace.pos, creep => {
         creep.memory.role = Builder.ROLE;
-      }
+      });
     }
 
     builders.forEach((scoot: Creep) => {

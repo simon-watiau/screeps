@@ -31,11 +31,10 @@ export default class ChargeController
     }
 
     if (scoots.length < count) {
-      const index = new CreepsIndex();
-      const creep = index.requestCharger(container.pos);
-      if (creep) {
+      const index = CreepsIndex.getInstance();
+      index.requestCharger(container.pos, creep => {
         creep.memory.role = ChargeController.ROLE;
-      }
+      });
     }
 
     scoots.forEach((scoot: Creep) => {

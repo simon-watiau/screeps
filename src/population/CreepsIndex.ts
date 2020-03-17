@@ -1,11 +1,33 @@
+interface Job {
+  type: string,
+  level?: number,
+  position: RoomPosition,
+  callback: (creep: Creep) => void
+}
+
 class CreepsIndex {
   public static LVL_HARVESTER_1 = 1;
   public static LVL_HARVESTER_2 = 2;
 
-  private static instance: CreepsIndex;
-  private constructor() {
+  public static TYPE_HARVESTER = 'harvester';
+  public static TYPE_REPAIR = 'repair';
+  public static TYPE_LOGISTIC = 'logistic';
+  public static TYPE_CHARGER = 'charger';
+  public static TYPE_BUILDER = 'builder';
+  public static TYPE_CLAIM = 'claim';
 
-  }
+  public static PRIORITIES = {
+    [CreepsIndex.TYPE_HARVESTER]: 6,
+    [CreepsIndex.TYPE_CHARGER] : 5,
+    [CreepsIndex.TYPE_LOGISTIC] : 4,
+    [CreepsIndex.TYPE_REPAIR] : 3,
+    [CreepsIndex.TYPE_BUILDER] : 2,
+    [CreepsIndex.TYPE_CLAIM]  : 1,
+  };
+
+  private static instance: CreepsIndex;
+
+  private requests: Job[] = [];
 
   public static getInstance(): CreepsIndex {
     if (!CreepsIndex.instance) {
@@ -19,14 +41,122 @@ class CreepsIndex {
     return type + " " + Math.floor(Math.random() * Math.floor(10000));
   };
 
-  public requestHarvester(target: RoomPosition, level: number): Creep|undefined {
-    const spawn = this.findClosestSpawn(target);
+  private constructor() {
+  }
+
+  public init() {
+    this.requests = [];
+  }
+
+  public resolve() {
+    const groupedBySpawns: Map<Id<StructureSpawn>, Job[]> = new Map<Id<StructureSpawn>, Job[]>();
+
+    this.requests.forEach((job: Job) => {
+      const spawn = this.findClosestSpawn(job.position);
+      if (spawn === undefined) {
+        return;
+      }
+
+      let group = groupedBySpawns.get(spawn.id);
+      if (!group) {
+        group = [];
+      }
+
+      group.push(job);
+
+      groupedBySpawns.set(spawn.id, group);
+    });
+
+    groupedBySpawns.forEach((jobs: Job[], spawnId: Id<StructureSpawn>) => {
+      let bestJob: Job|undefined;
+
+      jobs.forEach((job: Job) => {
+        if (!bestJob) {
+          bestJob = job;
+        }else {
+          if (CreepsIndex.PRIORITIES[job.type] > CreepsIndex.PRIORITIES[bestJob.type]) {
+            bestJob = job;
+          }
+        }
+      });
+
+      if (bestJob) {
+        if (bestJob.type === CreepsIndex.TYPE_REPAIR) {
+          this.doRepair(bestJob);
+        } else if (bestJob.type === CreepsIndex.TYPE_LOGISTIC) {
+          this.doLogstic(bestJob);
+        } else if (bestJob.type === CreepsIndex.TYPE_BUILDER) {
+          this.doBuilder(bestJob);
+        } else if (bestJob.type === CreepsIndex.TYPE_CHARGER) {
+          this.doCharger(bestJob);
+        } else if (bestJob.type === CreepsIndex.TYPE_CLAIM) {
+          this.doClaim(bestJob);
+        } else if (bestJob.type === CreepsIndex.TYPE_HARVESTER) {
+          this.doCreateHarvester(bestJob);
+        }
+      }
+    });
+  }
+
+  public requestHarvester(target: RoomPosition, level: number, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      level,
+      position: target,
+      type: CreepsIndex.TYPE_HARVESTER,
+    });
+  }
+
+  public requestRepair(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: CreepsIndex.TYPE_REPAIR,
+    });
+  }
+
+  public requestLogistic(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: CreepsIndex.TYPE_LOGISTIC,
+    });
+  }
+
+
+  public requestCharger(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: CreepsIndex.TYPE_CHARGER,
+    });
+  }
+
+  public requestBuilder(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: CreepsIndex.TYPE_BUILDER,
+    });
+  }
+
+
+  public requestClaim(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: CreepsIndex.TYPE_CLAIM,
+    });
+  }
+
+  public doCreateHarvester(job: Job) {
+    const spawn = this.findClosestSpawn(job.position);
     if (spawn === undefined) {
-      return undefined;
+      return;
     }
 
     let body: BodyPartConstant[] = [];
-    switch (level) {
+    switch (job.level) {
       default:
       case CreepsIndex.LVL_HARVESTER_1:
         body = this.computeBestBody(spawn, [WORK, CARRY, MOVE], [WORK, CARRY, MOVE]);
@@ -36,25 +166,30 @@ class CreepsIndex {
         break;
     }
 
-    return this.request(spawn, target, 'harvester', body)
+    const creep = this.request(spawn, job.position, 'harvester', body);
+    if (creep) {
+      job.callback(creep);
+    }
   }
 
-
-  public requestRepair(target: RoomPosition): Creep|undefined {
-    const spawn = this.findClosestSpawn(target);
+  private doRepair(job: Job): void {
+    const spawn = this.findClosestSpawn(job.position);
     if (spawn === undefined) {
-      return undefined;
+      return;
     }
 
     let body: BodyPartConstant[];
 
     body = [WORK, CARRY, MOVE];
 
-    return this.request(spawn, target, 'repair', body)
+    const creep = this.request(spawn, job.position, 'repair', body);
+    if (creep) {
+      job.callback(creep);
+    }
   }
 
-  public requestLogistic(target: RoomPosition, level: number = -1): Creep|undefined {
-    const spawn = this.findClosestSpawn(target);
+  private doLogstic(job: Job): void {
+    const spawn = this.findClosestSpawn(job.position);
     if (spawn === undefined) {
 
       return undefined;
@@ -62,11 +197,14 @@ class CreepsIndex {
 
     const body = this.computeBestBody(spawn, [MOVE, CARRY], [MOVE, CARRY]);
 
-    return this.request(spawn, target, 'logistic', body)
+    const creep = this.request(spawn, job.position, 'logistic', body);
+    if (creep) {
+      job.callback(creep);
+    }
   }
 
-  public requestCharger(target: RoomPosition, level: number = -1): Creep|undefined {
-    const spawn = this.findClosestSpawn(target);
+  public doCharger(job: Job): void {
+    const spawn = this.findClosestSpawn(job.position);
 
     if (spawn === undefined) {
       return undefined;
@@ -74,11 +212,14 @@ class CreepsIndex {
 
     const body = this.computeBestBody(spawn, [CARRY, WORK, MOVE], [CARRY, WORK, MOVE]);
 
-    return this.request(spawn, target, 'charger', body)
+    const creep = this.request(spawn, job.position, 'charger', body);
+    if (creep) {
+      job.callback(creep);
+    }
   }
 
-  public requestBuilder(target: RoomPosition, level: number = -1): Creep|undefined {
-    const spawn = this.findClosestSpawn(target);
+  public doBuilder(job: Job): void {
+    const spawn = this.findClosestSpawn(job.position);
     if (spawn === undefined) {
       return undefined;
     }
@@ -86,11 +227,14 @@ class CreepsIndex {
     let body: BodyPartConstant[];
     body = this.computeBestBody(spawn, [CARRY, WORK, MOVE], [CARRY, WORK, MOVE]);
 
-    return this.request(spawn, target, 'builder', body)
+    const creep = this.request(spawn, job.position, 'builder', body);
+    if (creep) {
+      job.callback(creep);
+    }
   }
 
-  public requestClaim(target: RoomPosition): Creep|undefined {
-    const spawn = this.findClosestSpawn(target);
+  public doClaim(job: Job): void {
+    const spawn = this.findClosestSpawn(job.position);
     if (spawn === undefined) {
       return undefined;
     }
@@ -98,7 +242,12 @@ class CreepsIndex {
     let body: BodyPartConstant[];
 
     body = [CLAIM, WORK, MOVE];
-    return this.request(spawn, target, 'claim', body)
+
+    const creep = this.request(spawn, job.position, 'claim', body);
+
+    if (creep) {
+      job.callback(creep);
+    }
   }
 
   private computeBestBody(spawn: StructureSpawn, maxOut: BodyPartConstant[], required: BodyPartConstant[]): BodyPartConstant[] {
@@ -226,12 +375,14 @@ class CreepsIndex {
     );
 
     if (!ret) {
+      console.log("NO PATH");
       return;
     }
 
     const pos: RoomPosition = ret.path[0];
     if (!pos) {
-      return undefined;
+      // Because if it's next to the spawn no path is needed.
+      return availableSpawns[0];
     }
 
     let bestSpawn: StructureSpawn|undefined;

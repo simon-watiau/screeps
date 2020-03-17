@@ -131,17 +131,16 @@ export default class HarvestSource {
     const source = this.getSource();
 
     if (!harvester) {
-      const creepIndex = new CreepsIndex();
+      const creepIndex = CreepsIndex.getInstance();
       let level = CreepsIndex.LVL_HARVESTER_1;
       if (closeContainer) {
         level = CreepsIndex.LVL_HARVESTER_2;
       }
-      const newCreep = creepIndex.requestHarvester(this.getSource().pos, level);
-      if (newCreep) {
-        newCreep.memory.role = HarvestSource.ROLE;
-        newCreep.memory.meta = newCreep.memory.meta || {};
-        newCreep.memory.meta[HarvestSource.META_SOURCE_ID] = source.id;
-      }
+      creepIndex.requestHarvester(this.getSource().pos, level, (creep: Creep) => {
+        creep.memory.role = HarvestSource.ROLE;
+        creep.memory.meta = creep.memory.meta || {};
+        creep.memory.meta[HarvestSource.META_SOURCE_ID] = source.id;
+      });
 
       return;
     }
