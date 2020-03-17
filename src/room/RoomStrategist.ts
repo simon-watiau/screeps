@@ -32,6 +32,10 @@ export default class RoomStrategist {
      return;
    }
 
+    if (roomController.isAttacked()) {
+      roomController.state.expectedDefendersCount = 2;
+    }
+
     roomController.state.expectedChargerCount = 3;
     roomController.state.expectedLogisticCount = 2;
     roomController.state.expectedBuilders = 1;

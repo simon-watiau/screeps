@@ -5,6 +5,11 @@ interface Job {
   callback: (creep: Creep) => void
 }
 
+interface BodyConfig {
+  part: BodyPartConstant,
+  percentage: number
+}
+
 class CreepsIndex {
   public static LVL_HARVESTER_1 = 1;
   public static LVL_HARVESTER_2 = 2;
@@ -15,8 +20,10 @@ class CreepsIndex {
   public static TYPE_CHARGER = 'charger';
   public static TYPE_BUILDER = 'builder';
   public static TYPE_CLAIM = 'claim';
+  public static TYPE_DEFEND = 'defend';
 
   public static PRIORITIES = {
+    [CreepsIndex.TYPE_DEFEND]: 7,
     [CreepsIndex.TYPE_HARVESTER]: 6,
     [CreepsIndex.TYPE_CHARGER] : 5,
     [CreepsIndex.TYPE_LOGISTIC] : 4,
@@ -69,6 +76,11 @@ class CreepsIndex {
 
     groupedBySpawns.forEach((jobs: Job[], spawnId: Id<StructureSpawn>) => {
       let bestJob: Job|undefined;
+      const currentSpawn = Game.getObjectById(spawnId);
+
+      if (!currentSpawn) {
+        throw new Error("Spawn does not exist");
+      }
 
       jobs.forEach((job: Job) => {
         if (!bestJob) {
@@ -93,6 +105,8 @@ class CreepsIndex {
           this.doClaim(bestJob);
         } else if (bestJob.type === CreepsIndex.TYPE_HARVESTER) {
           this.doCreateHarvester(bestJob);
+        } else if (bestJob.type === CreepsIndex.TYPE_DEFEND) {
+          this.doDefend(bestJob);
         }
       }
     });
@@ -104,6 +118,14 @@ class CreepsIndex {
       level,
       position: target,
       type: CreepsIndex.TYPE_HARVESTER,
+    });
+  }
+
+  public requestDefender(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: CreepsIndex.TYPE_DEFEND,
     });
   }
 
@@ -167,6 +189,22 @@ class CreepsIndex {
     }
 
     const creep = this.request(spawn, job.position, 'harvester', body);
+    if (creep) {
+      job.callback(creep);
+    }
+  }
+
+  public doDefend(job: Job) {
+    const spawn = this.findClosestSpawn(job.position);
+    if (spawn === undefined) {
+      return;
+    }
+
+    let body: BodyPartConstant[] = [];
+
+    body = this.computeBestBody(spawn, [ATTACK, MOVE], [ATTACK, MOVE]);
+
+    const creep = this.request(spawn, job.position, 'defend', body);
     if (creep) {
       job.callback(creep);
     }

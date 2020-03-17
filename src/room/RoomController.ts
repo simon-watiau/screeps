@@ -1,6 +1,7 @@
 import {Logger} from "typescript-logging";
 import Builder from "../behaviour/Builder";
 import ChargeController from "../behaviour/ChargeController";
+import Defend from "../behaviour/Defend";
 import EnergyLogistic from "../behaviour/EnergyLogistic";
 import HarvestSource from "../behaviour/HarvestSource";
 import Repair from "../behaviour/Repair";
@@ -28,6 +29,8 @@ class RoomController {
   private repair: Repair;
   private builder: Builder;
   private logistic: EnergyLogistic;
+  private defender: Defend;
+
   private scoot?: Scoot;
 
   constructor(roomName: string) {
@@ -45,6 +48,7 @@ class RoomController {
     this.repair = new Repair(this.roomName);
     this.builder = new Builder(this.roomName);
     this.logistic = new EnergyLogistic(this.roomName);
+    this.defender = new Defend(this.roomName);
 
     this.latestEnergyProduction = this.getStoredEnergy();
     this.latestScreepsCount = this.getRoom().find(FIND_MY_CREEPS).length;
@@ -56,6 +60,7 @@ class RoomController {
       ensureRoadNetwork: false,
       expectedBuilders: 0,
       expectedChargerCount: 0,
+      expectedDefendersCount: 0,
       expectedHarvesters: 0,
       expectedLogisticCount: 0,
       expectedRepairers: 0,
@@ -84,6 +89,8 @@ class RoomController {
     this.charger.charge(this.state.expectedChargerCount);
 
     this.logistic.move(this.state.expectedLogisticCount);
+
+    this.defender.defend(this.state.expectedDefendersCount);
 
     this.harvesters.forEach((harvester: HarvestSource) => {
       harvester.harvest();
@@ -137,6 +144,13 @@ class RoomController {
     const currentDelta =  this.getStoredEnergy() - this.latestEnergyProduction;
     this.latestEnergyProduction = this.getStoredEnergy();
     return currentDelta;
+  }
+
+  public isAttacked():boolean {
+    const position = new RoomPosition(10,10,this.roomName);
+      return (position.findClosestByRange(FIND_HOSTILE_SPAWNS) ||
+        position.findClosestByRange(FIND_HOSTILE_CREEPS) ||
+        position.findClosestByRange(FIND_HOSTILE_POWER_CREEPS)) !== null;
   }
 
   public getAndUpdateScreepsCountDelta() {
