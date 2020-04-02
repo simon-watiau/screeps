@@ -1,3 +1,5 @@
+import Banker from "../Banker";
+
 interface Job {
   type: string,
   level?: number,
@@ -11,26 +13,21 @@ interface BodyConfig {
 }
 
 class CreepsIndex {
+
+  public static PRIORITIES:any = {
+    [TOUGH]: 8,
+    // tslint:disable-next-line:object-literal-sort-keys
+    [ATTACK]: 7,
+    [RANGED_ATTACK]: 6,
+    [MOVE] : 5,
+    [HEAL] : 4,
+    [WORK] : 3,
+    [CARRY] : 2,
+    [CLAIM] : 1,
+  };
+
   public static LVL_HARVESTER_1 = 1;
   public static LVL_HARVESTER_2 = 2;
-
-  public static TYPE_HARVESTER = 'harvester';
-  public static TYPE_REPAIR = 'repair';
-  public static TYPE_LOGISTIC = 'logistic';
-  public static TYPE_CHARGER = 'charger';
-  public static TYPE_BUILDER = 'builder';
-  public static TYPE_CLAIM = 'claim';
-  public static TYPE_DEFEND = 'defend';
-
-  public static PRIORITIES = {
-    [CreepsIndex.TYPE_DEFEND]: 7,
-    [CreepsIndex.TYPE_HARVESTER]: 6,
-    [CreepsIndex.TYPE_CHARGER] : 5,
-    [CreepsIndex.TYPE_LOGISTIC] : 4,
-    [CreepsIndex.TYPE_REPAIR] : 3,
-    [CreepsIndex.TYPE_BUILDER] : 2,
-    [CreepsIndex.TYPE_CLAIM]  : 1,
-  };
 
   private static instance: CreepsIndex;
 
@@ -44,6 +41,37 @@ class CreepsIndex {
     return CreepsIndex.instance;
   }
 
+  public static averageBodyCost(roomName:string) : number {
+    let cost = 0;
+    let total = 0;
+    Object.keys(Game.creeps).forEach((name: string) => {
+      const creep = Game.creeps[name];
+
+      if (!creep) {
+        throw new Error("Failed to get creep");
+      }
+      if (creep.room.name === roomName) {
+        total++;
+        cost += CreepsIndex.computeBodyCost(creep.body);
+      }
+    });
+
+    if(total === 0) {
+      return 0;
+    }
+
+    return cost/total;
+  }
+
+  public static canUpgradeCreep(creep: Creep, type: string): boolean {
+    const averagePrice = this.averageBodyCost(creep.room.name);
+    const currentPrice = this.computeBodyCost(creep.body);
+    if (currentPrice < averagePrice) {
+      Banker.getInstance(creep.room.name).getFinancing([type])
+    }
+    return false;
+  }
+
   private static randomName(type: string): string {
     return type + " " + Math.floor(Math.random() * Math.floor(10000));
   };
@@ -55,15 +83,25 @@ class CreepsIndex {
     this.requests = [];
   }
 
+  public static computeBodyCost(body: BodyPartDefinition[]): number {
+    let cost = 0;
+    body.forEach((part: BodyPartDefinition) => {
+      cost += BODYPART_COST[part.type];
+    });
+
+    return cost;
+  }
+
   public resolve() {
     const groupedBySpawns: Map<Id<StructureSpawn>, Job[]> = new Map<Id<StructureSpawn>, Job[]>();
 
     this.requests.forEach((job: Job) => {
+
       const spawn = this.findClosestSpawn(job.position);
+
       if (spawn === undefined) {
         return;
       }
-
       let group = groupedBySpawns.get(spawn.id);
       if (!group) {
         group = [];
@@ -75,38 +113,74 @@ class CreepsIndex {
     });
 
     groupedBySpawns.forEach((jobs: Job[], spawnId: Id<StructureSpawn>) => {
-      let bestJob: Job|undefined;
       const currentSpawn = Game.getObjectById(spawnId);
 
       if (!currentSpawn) {
         throw new Error("Spawn does not exist");
       }
 
-      jobs.forEach((job: Job) => {
-        if (!bestJob) {
-          bestJob = job;
-        }else {
-          if (CreepsIndex.PRIORITIES[job.type] > CreepsIndex.PRIORITIES[bestJob.type]) {
-            bestJob = job;
-          }
-        }
-      });
+      let financing;
 
-      if (bestJob) {
-        if (bestJob.type === CreepsIndex.TYPE_REPAIR) {
-          this.doRepair(bestJob);
-        } else if (bestJob.type === CreepsIndex.TYPE_LOGISTIC) {
-          this.doLogstic(bestJob);
-        } else if (bestJob.type === CreepsIndex.TYPE_BUILDER) {
-          this.doBuilder(bestJob);
-        } else if (bestJob.type === CreepsIndex.TYPE_CHARGER) {
-          this.doCharger(bestJob);
-        } else if (bestJob.type === CreepsIndex.TYPE_CLAIM) {
-          this.doClaim(bestJob);
-        } else if (bestJob.type === CreepsIndex.TYPE_HARVESTER) {
-          this.doCreateHarvester(bestJob);
-        } else if (bestJob.type === CreepsIndex.TYPE_DEFEND) {
-          this.doDefend(bestJob);
+      // first pass with the needs of the current room
+      let jobsToConsider = jobs.filter((job: Job) => job.position.roomName === currentSpawn.room.name);
+
+      if (jobsToConsider.length !== 0) {
+        const types = jobsToConsider.map((job: Job) => job.type);
+        financing = Banker.getInstance(currentSpawn.room.name).getFinancing(types);
+      } else {
+        jobsToConsider = jobs.filter((job: Job) => job.position.roomName !== currentSpawn.room.name);
+        const types = jobsToConsider.map((job: Job) => job.type);
+        financing = Banker.getInstance(currentSpawn.room.name).getFinancing(types);
+      }
+
+      if (!financing || financing.amount === 0) {
+        return;
+      }
+
+      let jobPerformed = false;
+      for (let i =0; i< jobsToConsider.length && !jobPerformed; i++) {
+        const job = jobsToConsider[i];
+        if (job.type !== financing.type) {
+          continue;
+        }
+        jobPerformed = true;
+        switch(financing.type) {
+          case Banker.TYPE_HARVESTER:
+            this.doCreateHarvester(job, financing.amount);
+            break;
+          case Banker.TYPE_REPAIR:
+            this.doRepair(job);
+            break;
+          case Banker.TYPE_LOGISTIC:
+            this.doLogstic(job, financing.amount);
+            break;
+          case Banker.TYPE_REMOTE_HARVESTER:
+             this.doRemoteHarvester(job, financing.amount);
+            break;
+          case Banker.TYPE_CHARGER:
+            this.doCharger(job, financing.amount);
+            break;
+          case Banker.TYPE_BUILDER:
+            this.doBuilder(job, financing.amount);
+            break;
+          case Banker.TYPE_CLAIM:
+            this.doClaim(job);
+            break;
+          case Banker.TYPE_DEFEND:
+            this.doDefend(job, financing.amount);
+            break;
+          case Banker.TYPE_ATTACK:
+            this.doAttack(job, financing.amount);
+            break;
+          case Banker.TYPE_TANK:
+            this.doTank(job, financing.amount);
+            break;
+          case Banker.TYPE_BOOTSTRAP:
+            this.doBootstrap(job, financing.amount);
+            break;
+          case Banker.TYPE_MAPPER:
+            this.doMapper(job, financing.amount);
+            break;
         }
       }
     });
@@ -117,7 +191,23 @@ class CreepsIndex {
       callback: cb,
       level,
       position: target,
-      type: CreepsIndex.TYPE_HARVESTER,
+      type: Banker.TYPE_HARVESTER,
+    });
+  }
+
+  public requestBoostrap(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: Banker.TYPE_BOOTSTRAP,
+    });
+  }
+
+  public requestMapper(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: Banker.TYPE_MAPPER,
     });
   }
 
@@ -125,7 +215,23 @@ class CreepsIndex {
     this.requests.push({
       callback: cb,
       position: target,
-      type: CreepsIndex.TYPE_DEFEND,
+      type: Banker.TYPE_DEFEND,
+    });
+  }
+
+  public requestAttacker(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: Banker.TYPE_ATTACK,
+    });
+  }
+
+  public requestTank(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: Banker.TYPE_TANK,
     });
   }
 
@@ -133,7 +239,7 @@ class CreepsIndex {
     this.requests.push({
       callback: cb,
       position: target,
-      type: CreepsIndex.TYPE_REPAIR,
+      type: Banker.TYPE_REPAIR,
     });
   }
 
@@ -141,16 +247,23 @@ class CreepsIndex {
     this.requests.push({
       callback: cb,
       position: target,
-      type: CreepsIndex.TYPE_LOGISTIC,
+      type: Banker.TYPE_LOGISTIC,
     });
   }
 
+  public requestRemoteHarvester(target: RoomPosition, cb: (creep: Creep) => void): void {
+    this.requests.push({
+      callback: cb,
+      position: target,
+      type: Banker.TYPE_REMOTE_HARVESTER,
+    });
+  }
 
   public requestCharger(target: RoomPosition, cb: (creep: Creep) => void): void {
     this.requests.push({
       callback: cb,
       position: target,
-      type: CreepsIndex.TYPE_CHARGER,
+      type: Banker.TYPE_CHARGER,
     });
   }
 
@@ -158,7 +271,7 @@ class CreepsIndex {
     this.requests.push({
       callback: cb,
       position: target,
-      type: CreepsIndex.TYPE_BUILDER,
+      type: Banker.TYPE_BUILDER,
     });
   }
 
@@ -167,11 +280,11 @@ class CreepsIndex {
     this.requests.push({
       callback: cb,
       position: target,
-      type: CreepsIndex.TYPE_CLAIM,
+      type: Banker.TYPE_CLAIM,
     });
   }
 
-  public doCreateHarvester(job: Job) {
+  public doCreateHarvester(job: Job, energy: number) {
     const spawn = this.findClosestSpawn(job.position);
     if (spawn === undefined) {
       return;
@@ -181,10 +294,10 @@ class CreepsIndex {
     switch (job.level) {
       default:
       case CreepsIndex.LVL_HARVESTER_1:
-        body = this.computeBestBody(spawn, [WORK, CARRY, MOVE], [WORK, CARRY, MOVE]);
+        body = this.computeBestBody(spawn, [WORK, CARRY, MOVE], [WORK, CARRY, MOVE], energy);
         break;
       case CreepsIndex.LVL_HARVESTER_2:
-        body = this.computeBestBody(spawn, [WORK], [MOVE]);
+        body = this.computeBestBody(spawn, [WORK], [MOVE], energy);
         break;
     }
 
@@ -194,7 +307,7 @@ class CreepsIndex {
     }
   }
 
-  public doDefend(job: Job) {
+  public doDefend(job: Job, energy: number) {
     const spawn = this.findClosestSpawn(job.position);
     if (spawn === undefined) {
       return;
@@ -202,9 +315,73 @@ class CreepsIndex {
 
     let body: BodyPartConstant[] = [];
 
-    body = this.computeBestBody(spawn, [ATTACK, MOVE], [ATTACK, MOVE]);
+    body = this.computeBestBody(spawn, [ATTACK, MOVE, TOUGH], [ATTACK, MOVE], energy);
 
     const creep = this.request(spawn, job.position, 'defend', body);
+    if (creep) {
+      job.callback(creep);
+    }
+  }
+
+  public doAttack(job: Job, energy: number) {
+    const spawn = this.findClosestSpawn(job.position);
+    if (spawn === undefined) {
+      return;
+    }
+
+    let body: BodyPartConstant[] = [];
+
+    body = this.computeBestBody(spawn, [MOVE, HEAL], [ATTACK, HEAL, MOVE], energy);
+
+    const creep = this.request(spawn, job.position, 'attack', body);
+    if (creep) {
+      job.callback(creep);
+    }
+  }
+
+  public doTank(job: Job, energy: number) {
+    const spawn = this.findClosestSpawn(job.position);
+    if (spawn === undefined) {
+      return;
+    }
+
+    let body: BodyPartConstant[] = [];
+
+    body = [TOUGH,TOUGH,TOUGH,TOUGH,TOUGH,MOVE,MOVE,MOVE,MOVE,MOVE,MOVE,MOVE,HEAL,HEAL];
+
+    const creep = this.request(spawn, job.position, 'tank', body);
+    if (creep) {
+      job.callback(creep);
+    }
+  }
+
+  public doBootstrap(job: Job, energy: number) {
+    const spawn = this.findClosestSpawn(job.position);
+    if (spawn === undefined) {
+      return;
+    }
+
+    let body: BodyPartConstant[] = [];
+
+    body = this.computeBestBody(spawn, [WORK, MOVE, CARRY], [WORK, MOVE, CARRY], energy);
+
+    const creep = this.request(spawn, job.position, 'bootstrap', body);
+    if (creep) {
+      job.callback(creep);
+    }
+  }
+
+  public doMapper(job: Job, energy: number) {
+    const spawn = this.findClosestSpawn(job.position);
+    if (spawn === undefined) {
+      return;
+    }
+
+    let body: BodyPartConstant[] = [];
+
+    body = this.computeBestBody(spawn, [], [MOVE], energy);
+
+    const creep = this.request(spawn, job.position, 'mapper', body);
     if (creep) {
       job.callback(creep);
     }
@@ -226,14 +403,14 @@ class CreepsIndex {
     }
   }
 
-  private doLogstic(job: Job): void {
+  private doLogstic(job: Job, energy: number): void {
     const spawn = this.findClosestSpawn(job.position);
-    if (spawn === undefined) {
 
+    if (spawn === undefined) {
       return undefined;
     }
 
-    const body = this.computeBestBody(spawn, [MOVE, CARRY], [MOVE, CARRY]);
+    const body = this.computeBestBody(spawn, [MOVE, CARRY], [MOVE, CARRY], energy);
 
     const creep = this.request(spawn, job.position, 'logistic', body);
     if (creep) {
@@ -241,14 +418,29 @@ class CreepsIndex {
     }
   }
 
-  public doCharger(job: Job): void {
+  private doRemoteHarvester(job: Job, energy: number): void {
+    const spawn = this.findClosestSpawn(job.position);
+    if (spawn === undefined) {
+
+      return undefined;
+    }
+
+    const body = this.computeBestBody(spawn, [WORK, MOVE, CARRY], [WORK, MOVE, CARRY], energy);
+
+    const creep = this.request(spawn, job.position, 'remote harvester', body);
+    if (creep) {
+      job.callback(creep);
+    }
+  }
+
+  public doCharger(job: Job, energy: number): void {
     const spawn = this.findClosestSpawn(job.position);
 
     if (spawn === undefined) {
       return undefined;
     }
 
-    const body = this.computeBestBody(spawn, [CARRY, WORK, MOVE], [CARRY, WORK, MOVE]);
+    const body = this.computeBestBody(spawn, [CARRY, WORK, MOVE], [CARRY, WORK, MOVE], energy);
 
     const creep = this.request(spawn, job.position, 'charger', body);
     if (creep) {
@@ -256,14 +448,14 @@ class CreepsIndex {
     }
   }
 
-  public doBuilder(job: Job): void {
+  public doBuilder(job: Job, energy: number): void {
     const spawn = this.findClosestSpawn(job.position);
     if (spawn === undefined) {
       return undefined;
     }
 
     let body: BodyPartConstant[];
-    body = this.computeBestBody(spawn, [CARRY, WORK, MOVE], [CARRY, WORK, MOVE]);
+    body = this.computeBestBody(spawn, [CARRY, WORK, MOVE], [CARRY, WORK, MOVE], energy);
 
     const creep = this.request(spawn, job.position, 'builder', body);
     if (creep) {
@@ -288,9 +480,8 @@ class CreepsIndex {
     }
   }
 
-  private computeBestBody(spawn: StructureSpawn, maxOut: BodyPartConstant[], required: BodyPartConstant[]): BodyPartConstant[] {
+  private computeBestBody(spawn: StructureSpawn, maxOut: BodyPartConstant[], required: BodyPartConstant[], energy: number): BodyPartConstant[] {
     let computedBody: BodyPartConstant[] = [];
-    let energy = spawn.room.energyAvailable;
 
     // Add mandatory parts
     required.forEach((part: BodyPartConstant) => {
@@ -336,7 +527,12 @@ class CreepsIndex {
         computedBody.push(nextPart);
         energy = energy - BODYPART_COST[nextPart];
       }
-    } while(nextPart);
+    } while(nextPart && computedBody.length < 50);
+
+    computedBody = computedBody.sort((a: string, b: string) => {
+      return CreepsIndex.PRIORITIES[b] - CreepsIndex.PRIORITIES[a];
+    });
+
     return computedBody;
   }
 
@@ -364,15 +560,25 @@ class CreepsIndex {
   }
 
   public findClosestSpawn(target: RoomPosition) : StructureSpawn|undefined {
-    const availableSpawns = _.filter(
-      Game.spawns, (spawn: StructureSpawn) => {
-        return !spawn.spawning;
-
-      });
+    const availableSpawns = Object.values<StructureSpawn>(Game.spawns);
 
     if (availableSpawns.length === 0) {
       return;
     }
+    let bestSpawn: StructureSpawn|undefined;
+
+    // if there is a spawn in the room, this one will be used no mater what
+    availableSpawns.forEach((s: StructureSpawn) => {
+      if (s.room.name === target.roomName) {
+        bestSpawn = s;
+      }
+    });
+
+    if (bestSpawn) {
+      return bestSpawn;
+    }
+
+    bestSpawn = availableSpawns[0];
 
     const goals = _.map(availableSpawns, (spawn: StructureSpawn) => {
       return { pos: spawn.pos, range: 1 };
@@ -418,12 +624,12 @@ class CreepsIndex {
     }
 
     const pos: RoomPosition = ret.path[0];
-    if (!pos) {
+    if (ret.path.length === 0) {
       // Because if it's next to the spawn no path is needed.
       return availableSpawns[0];
     }
 
-    let bestSpawn: StructureSpawn|undefined;
+
     let bestSpawnDistance: number = -1;
     availableSpawns.forEach((spawn: StructureSpawn) => {
       const currentDistance: number = Math.abs(pos.x - spawn.pos.x) +  Math.abs(pos.x - spawn.pos.x);

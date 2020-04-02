@@ -1,12 +1,16 @@
 import _ from 'lodash';
 import {Logger} from "typescript-logging";
+import Banker from "../Banker";
 import CreepsIndex from "../population/CreepsIndex";
 import StateMachine from "../StateMachine";
 import {factory} from "../utils/ConfigLog4J";
+import getCreepRole from "../utils/creeps/getCreepRole";
+import getCreepsByRole from "../utils/creeps/getCreepsByRole";
+import Min = Mocha.reporters.Min;
 
 export default class HarvestSource {
   private static ROLE: string = 'harvester';
-  private static META_SOURCE_ID: string = 'source_id';
+  private static META_TARGET_ID: string = 'source_id';
 
   public static STATE_WORKING = 'WORKING';
   public static STATE_CONSTRUCTING = 'CONSTRUCTING';
@@ -15,11 +19,11 @@ export default class HarvestSource {
   public static STATE_CREATING_CREEP = 'CREATING_HARVESTER';
   public static STATE_INIT = 'INIT';
 
-  private sourceId: Id<Source>;
+  private targetId: Id<Source|Mineral>;
   private logger: Logger;
 
   public getHarvester(): Creep|undefined {
-    const harvesters =  _.filter(Game.creeps, (c: Creep) => c.memory.role === HarvestSource.ROLE && c.memory.meta[HarvestSource.META_SOURCE_ID] === this.sourceId);
+    const harvesters =  getCreepsByRole(HarvestSource.ROLE, this.targetId);
 
     if (harvesters.length === 0) {
       return undefined;
@@ -28,13 +32,29 @@ export default class HarvestSource {
     return harvesters[0];
   }
 
-  public getSourceId(): Id<Source> {
-    return this.sourceId;
+  public getSourceId(): Id<Source|Mineral> {
+    return this.targetId;
+  }
+
+  public isSource(): boolean {
+    const source = Game.getObjectById(this.targetId);
+    return source instanceof Source;
+  }
+
+  public isMineral(): boolean {
+    const source = Game.getObjectById(this.targetId);
+    return source instanceof Mineral;
+  }
+
+  public static countHarvesterByType(roomName: string, type: any): number {
+    return getCreepsByRole(this.ROLE).filter((c: Creep) => {
+      return Game.getObjectById(c.memory.meta[HarvestSource.META_TARGET_ID]) instanceof type
+    }).length;
   }
 
   public static getFreeSources(room: Room, harvesters: HarvestSource[]): Source[] {
     const harvestedSourcesIds = harvesters.map((harvester: HarvestSource) => {
-        return harvester.getSourceId();
+      return harvester.getSourceId();
     });
 
     return room.find(FIND_SOURCES).sort((s1:Source, s2: Source): number => {
@@ -50,10 +70,20 @@ export default class HarvestSource {
     });
   }
 
-  constructor(sourceId: Id<Source>) {
+  public static getFreeMinerals(room: Room, harvesters: HarvestSource[]): Mineral[] {
+    const harvestedSourcesIds = harvesters.map((harvester: HarvestSource) => {
+      return harvester.getSourceId();
+    });
+
+    return room.find(FIND_MINERALS).filter((mineral: Mineral): boolean => {
+      return !harvestedSourcesIds.includes(mineral.id);
+    });
+  }
+
+  constructor(sourceId: Id<Source|Mineral>) {
    this.logger = factory.getLogger("harvester." + sourceId);
 
-    this.sourceId = sourceId;
+    this.targetId = sourceId;
 
     this.logger.info('Started harvesting');
   }
@@ -72,8 +102,8 @@ export default class HarvestSource {
     return !!this.findCloseContainer();
    }
 
-  private getSource(): Source {
-    const source = Game.getObjectById<Source>(this.sourceId);
+  private getTarget(): Source|Mineral {
+    const source = Game.getObjectById<Source|Mineral>(this.targetId);
 
     if (!source) {
       throw new Error("Source not found");
@@ -82,25 +112,28 @@ export default class HarvestSource {
 
   }
 
-  private getTarget(): any {
-    const containers = this.getSource().pos.findInRange(FIND_STRUCTURES, 1, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER});
+  private getDestination(): any {
+    const target =  this.getTarget();
+
+    const containers = target.pos.findInRange(FIND_STRUCTURES, 1, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER});
 
     if (containers.length > 0) {
       return containers[0];
     }
 
-    const constructionSites = this.getSource().pos.findInRange(FIND_CONSTRUCTION_SITES, 1, { filter: (a: ConstructionSite) => a.structureType === STRUCTURE_CONTAINER});
+    if (target instanceof Source) {
+      const constructionSites = target.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, {filter: (a: ConstructionSite) => a.structureType === STRUCTURE_CONTAINER});
 
 
-    if (constructionSites.length > 0) {
-      return constructionSites[0];
+      if (constructionSites.length > 0) {
+        return constructionSites[0];
+      }
     }
-
     return undefined;
   }
 
   private findCloseContainer(): StructureContainer|undefined {
-    const source = this.getSource();
+    const source = this.getTarget();
 
     const containers = source.pos.findInRange<StructureContainer>(FIND_STRUCTURES, 1, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER});
 
@@ -111,8 +144,14 @@ export default class HarvestSource {
     return undefined;
   }
 
+  private hasExtractor(): boolean {
+    const source = this.getTarget();
+
+    return source.pos.findInRange<StructureContainer>(FIND_STRUCTURES, 1, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_EXTRACTOR}).length !== 0;
+  }
+
   private findCloseContainerConstruction(): ConstructionSite|undefined {
-    const source = this.getSource();
+    const source = this.getTarget();
     const sites = source.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, { filter: (a: ConstructionSite) => a.structureType === STRUCTURE_CONTAINER});
 
     if (sites.length > 0) {
@@ -127,19 +166,31 @@ export default class HarvestSource {
     const harvester = this.getHarvester();
     const closeContainer = this.findCloseContainer();
     const closeConstructionSite = this.findCloseContainerConstruction();
+    const hasExtractor = this.hasExtractor();
 
-    const source = this.getSource();
+    const source = this.getTarget();
+
+    if ((!closeContainer || !hasExtractor) && this.isMineral()) {
+      return;
+    }
+
+    if (
+      (this.isMineral() && (source as Mineral).mineralAmount === 0) ||
+      (this.isSource() && (source as Source).energy === 0)
+    ) {
+      return;
+    }
 
     if (!harvester) {
       const creepIndex = CreepsIndex.getInstance();
       let level = CreepsIndex.LVL_HARVESTER_1;
-      if (closeContainer) {
+      if (closeContainer || source instanceof Mineral) {
         level = CreepsIndex.LVL_HARVESTER_2;
       }
-      creepIndex.requestHarvester(this.getSource().pos, level, (creep: Creep) => {
-        creep.memory.role = HarvestSource.ROLE;
+      creepIndex.requestHarvester(this.getTarget().pos, level, (creep: Creep) => {
+        creep.memory.role = getCreepRole(HarvestSource.ROLE, source.id);
         creep.memory.meta = creep.memory.meta || {};
-        creep.memory.meta[HarvestSource.META_SOURCE_ID] = source.id;
+        creep.memory.meta[HarvestSource.META_TARGET_ID] = source.id;
       });
 
       return;
@@ -148,6 +199,7 @@ export default class HarvestSource {
     if (harvester.spawning) {
       return;
     }
+
 
     if (closeContainer) {
       if (!harvester.pos.isEqualTo(closeContainer.pos)) {
@@ -163,17 +215,21 @@ export default class HarvestSource {
       }
     }
 
-    if (harvester.store.getFreeCapacity() > 0 || harvester.store.getCapacity() === null) {
+    if (harvester.store.getFreeCapacity(RESOURCE_ENERGY) > 0 || harvester.store.getCapacity(RESOURCE_ENERGY) === null) {
         if (harvester.harvest(source) === ERR_NOT_IN_RANGE) {
           harvester.moveTo(source.pos);
         }
     }
 
-    if (harvester.store.getFreeCapacity() === 0) {
+    if (harvester.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
       if (closeConstructionSite) {
         harvester.build(closeConstructionSite);
       }else if (closeContainer) {
-        harvester.transfer(closeContainer, RESOURCE_ENERGY);
+        if (this.isSource()) {
+          harvester.transfer(closeContainer, RESOURCE_ENERGY);
+        } else {
+          harvester.transfer(closeContainer, (source as Mineral).mineralType);
+        }
       }
     }
   }

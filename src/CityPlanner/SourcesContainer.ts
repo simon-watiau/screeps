@@ -42,7 +42,7 @@ export default class SourcesContainer {
           if (struct.structureType === STRUCTURE_CONTAINER ||
             (struct.structureType === STRUCTURE_RAMPART &&
               !(struct instanceof OwnedStructure))) {
-            costs.set(struct.pos.x, struct.pos.y, 0xff);
+           // costs.set(struct.pos.x, struct.pos.y, 0xff);
           }
         });
 

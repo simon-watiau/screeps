@@ -3,6 +3,9 @@ import {Logger} from "typescript-logging";
 import CreepsIndex from "../population/CreepsIndex";
 import StateMachine from "../StateMachine";
 import {factory} from "../utils/ConfigLog4J";
+import getCreepRole from "../utils/creeps/getCreepRole";
+import getCreepsByRole from "../utils/creeps/getCreepsByRole";
+import drawingOpts from "../utils/PathDrawing";
 
 export default class Repair {
   public static ROLE = 'repair';
@@ -19,7 +22,7 @@ export default class Repair {
   }
 
   public getRepaires(): Creep[] {
-    return _.filter(Game.creeps, (c: Creep) => c.memory.role === Repair.ROLE && c.room.name === this.roomName);
+    return getCreepsByRole(Repair.ROLE, this.roomName);
   }
 
   public repair(count: number) {
@@ -29,7 +32,7 @@ export default class Repair {
 
     const repairers = this.getRepaires();
 
-    const toRepair = this.findStructureToRepair();
+    const toRepair = Repair.findStructureToRepair(this.getRoom());
 
     if (!toRepair) {
       this.logger.info("Nothing to repair, stand by");
@@ -39,7 +42,7 @@ export default class Repair {
     if (repairers.length < count) {
       const index = CreepsIndex.getInstance();
       index.requestRepair(toRepair.pos, creep => {
-        creep.memory.role = Repair.ROLE;
+        creep.memory.role = getCreepRole(Repair.ROLE, this.roomName);
       });
     }
 
@@ -56,25 +59,27 @@ export default class Repair {
         return;
       }
 
-      if (repairer.store.getFreeCapacity() === 0 && repairer.memory.objective === Repair.OBJECTIVE_FILL) {
+      if (repairer.store.getFreeCapacity(RESOURCE_ENERGY) === 0 && repairer.memory.objective === Repair.OBJECTIVE_FILL) {
         repairer.memory.objective = Repair.OBJECTIVE_REPAIR;
       }
 
-      if (repairer.store.getUsedCapacity() === 0 && (repairer.memory.objective === Repair.OBJECTIVE_REPAIR || !repairer.memory.objective)) {
+      if (repairer.store.getUsedCapacity(RESOURCE_ENERGY) === 0 && (repairer.memory.objective === Repair.OBJECTIVE_REPAIR || !repairer.memory.objective)) {
         repairer.memory.objective = Repair.OBJECTIVE_FILL;
       }
 
       if (repairer.memory.objective === Repair.OBJECTIVE_REPAIR) {
         const r = repairer.repair(toRepair);
         if (r === ERR_NOT_IN_RANGE) {
-          repairer.moveTo(toRepair);
+          repairer.say("+Repair");
+          repairer.moveTo(toRepair, {visualizePathStyle: drawingOpts('#3cb8ff')});
         }
       }
 
       if (repairer.memory.objective === Repair.OBJECTIVE_FILL) {
         const r = repairer.withdraw(source, RESOURCE_ENERGY);
         if (r === ERR_NOT_IN_RANGE) {
-          repairer.moveTo(source);
+          repairer.say("-Repair");
+          repairer.moveTo(source, {visualizePathStyle: drawingOpts('#3cb8ff')});
         }
       }
     });
@@ -88,10 +93,15 @@ export default class Repair {
     return room;
   }
 
-  protected findStructureToRepair(): Structure|undefined {
-    const targets = this.getRoom().find(FIND_STRUCTURES, {
-      filter: object => object.hits < object.hitsMax
-    });
+  public static findStructureToRepair(room: Room): Structure|undefined {
+    const targets = room.find(FIND_STRUCTURES, {
+      filter: object => {
+        if (object instanceof StructureRampart || object instanceof StructureWall) {
+          return object.hits < 30000;
+        }
+        return object.hits < object.hitsMax
+      }
+    }).sort((a, b) => a.hits - b.hits);
 
     if (targets.length === 0) {
       return undefined;
@@ -102,7 +112,7 @@ export default class Repair {
 
   private getClosestContainer(creep: Creep): StructureContainer|null {
     return creep.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES, {
-      filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity() > 0
+      filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity(RESOURCE_ENERGY) > 0
     });
   }
 }

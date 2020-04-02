@@ -2,6 +2,9 @@ import _ from "lodash";
 import {Logger} from "typescript-logging";
 import CreepsIndex from "../population/CreepsIndex";
 import {factory} from "../utils/ConfigLog4J";
+import getCreepRole from "../utils/creeps/getCreepRole";
+import getCreepsByRole from "../utils/creeps/getCreepsByRole";
+import drawingOpts from "../utils/PathDrawing";
 
 export default class ChargeController
 {
@@ -19,7 +22,7 @@ export default class ChargeController
   }
 
   public getChargers(): Creep[] {
-    return  _.filter(Game.creeps, (c: Creep) => c.memory.role === ChargeController.ROLE && c.room.name === this.roomName);
+    return getCreepsByRole(ChargeController.ROLE, this.roomName);
   }
 
   public charge(count: number) {
@@ -33,7 +36,7 @@ export default class ChargeController
     if (scoots.length < count) {
       const index = CreepsIndex.getInstance();
       index.requestCharger(container.pos, creep => {
-        creep.memory.role = ChargeController.ROLE;
+        creep.memory.role = getCreepRole(ChargeController.ROLE, this.roomName);
       });
     }
 
@@ -46,11 +49,11 @@ export default class ChargeController
         scoot.memory.objective = ChargeController.OBJECTIVE_REFILL;
       }
 
-      if (scoot.store.getFreeCapacity() === 0 && scoot.memory.objective === ChargeController.OBJECTIVE_REFILL) {
+      if (scoot.store.getFreeCapacity(RESOURCE_ENERGY) === 0 && scoot.memory.objective === ChargeController.OBJECTIVE_REFILL) {
         scoot.memory.objective = ChargeController.OBJECTIVE_CHARGE;
       }
 
-      if (scoot.store.getUsedCapacity() === 0 && (!scoot.memory.objective || scoot.memory.objective === ChargeController.OBJECTIVE_CHARGE)) {
+      if (scoot.store.getUsedCapacity(RESOURCE_ENERGY) === 0 && (!scoot.memory.objective || scoot.memory.objective === ChargeController.OBJECTIVE_CHARGE)) {
         scoot.memory.objective = ChargeController.OBJECTIVE_REFILL;
       }
 
@@ -95,7 +98,7 @@ export default class ChargeController
 
   private getClosestContainer(target: Creep|StructureController): StructureContainer|null {
     return target.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES,
-      { filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity() > 0}
+      { filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity(RESOURCE_ENERGY) > 0}
     );
   }
 }

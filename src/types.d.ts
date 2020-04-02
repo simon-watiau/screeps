@@ -3,6 +3,7 @@
 // memory extension samples
 interface CreepMemory {
   role: string;
+  targetRoomName: string,
   meta: any;
   objective: string;
 }
@@ -10,14 +11,22 @@ interface CreepMemory {
 interface Memory {
   uuid: number;
   log: any;
-  test:any;
   terraformedRoom: {
     [roomName: string]: RoomMemory
+  },
+  intel: {
+    [roomName: string]: IntelState[]
   }
 }
 
+interface IntelState {
+  timestamp?:number,
+  towersCount: number,
+  towersPowerLeft: number
+}
+
 interface RoomMemory {
-  harvesters: Array<Id<Source>>
+  stateMachines: any,
   controller?: Id<StructureController>
 }
 

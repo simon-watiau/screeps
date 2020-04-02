@@ -59,6 +59,7 @@
     "@screeps/common": "^2.12.1",
     "@screeps/driver": "^5.0.0",
     "@screeps/engine": "^4.0.4",
+    "screeps-profiler": "^2.0.1",
     "screeps-server-mockup": "^1.5.0",
     "screepsmod-admin-utils": "^1.13.4",
     "screepsmod-auth": "^2.4.7",

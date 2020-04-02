@@ -9,13 +9,14 @@ export default class RoadBuilder {
         return a.structureType === STRUCTURE_CONTAINER ||
           a.structureType === STRUCTURE_EXTENSION ||
           a.structureType === STRUCTURE_SPAWN ||
-          a.structureType === STRUCTURE_CONTROLLER;
+          a.structureType === STRUCTURE_CONTROLLER ||
+          a.structureType === STRUCTURE_TOWER;
       }
     });
 
     destinations.forEach((source: Structure) => {
       destinations.forEach((dest: Structure) => {
-        const path = source.pos.findPathTo(dest);
+        const path = source.pos.findPathTo(dest, {ignoreCreeps: true});
         for (const step of path) {
           const empty = room.lookAt(new RoomPosition(step.x, step.y, room.name)).filter((el) => {
             const isValid = el.terrain === "plain" || el.terrain === "swamp" || !!el.creep;

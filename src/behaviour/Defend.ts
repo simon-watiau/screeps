@@ -2,9 +2,10 @@ import _ from "lodash";
 import {Logger} from "typescript-logging";
 import CreepsIndex from "../population/CreepsIndex";
 import {factory} from "../utils/ConfigLog4J";
+import getCreepRole from "../utils/creeps/getCreepRole";
+import getCreepsByRole from "../utils/creeps/getCreepsByRole";
 
 export default class Defend {
-  private static STRIKE_BACK_BENARD = 'W7N7';
 
   public static ROLE = 'defend';
 
@@ -13,11 +14,11 @@ export default class Defend {
 
   constructor(roomName: string) {
     this.roomName = roomName;
-    this.logger = factory.getLogger("builder." + roomName);
+    this.logger = factory.getLogger("defend." + roomName);
   }
 
   public getDefenders(): Creep[] {
-    return  _.filter(Game.creeps, (c: Creep) => c.memory.role === Defend.ROLE && c.room.name === this.roomName);
+    return  getCreepsByRole(Defend.ROLE, this.roomName);
   }
 
   private getRoom(): Room {
@@ -29,15 +30,13 @@ export default class Defend {
   }
 
   protected findEnemies(position: RoomPosition): AnyCreep|Structure|null {
-    return position.findClosestByRange(FIND_HOSTILE_SPAWNS) ||
-      position.findClosestByRange(FIND_HOSTILE_CREEPS) ||
-      position.findClosestByRange(FIND_HOSTILE_POWER_CREEPS);
+    const opts = {filter: (o: RoomObject) => o.pos.x > 2 && o.pos.x < 38 && o.pos.y > 2 && o.pos.y < 38};
+    return position.findClosestByRange(FIND_HOSTILE_SPAWNS, opts) ||
+      position.findClosestByRange(FIND_HOSTILE_CREEPS, opts) ||
+      position.findClosestByRange(FIND_HOSTILE_POWER_CREEPS, opts);
   }
 
   public defend(count: number) {
-    if (count === 0) {
-      return;
-    }
     const defenders = this.getDefenders();
 
     if (defenders.length < count) {
@@ -49,7 +48,7 @@ export default class Defend {
           this.roomName
         ),
           creep => {
-            creep.memory.role = Defend.ROLE;
+            creep.memory.role = getCreepRole(Defend.ROLE, this.roomName)
           }
         );
     }
@@ -60,20 +59,10 @@ export default class Defend {
       }
 
       const enemy = this.findEnemies(scoot.pos);
+
       if (enemy) {
-        if (scoot.attack(enemy) === ERR_NOT_IN_RANGE) {
+        if (scoot.attack(enemy) !== OK && scoot.rangedAttack(enemy) !== OK) {
           scoot.moveTo(enemy.pos);
-        }
-      }else {
-        if (scoot.room.name === Defend.STRIKE_BACK_BENARD) {
-          const strokeBackEnemy = this.findEnemies(scoot.pos);
-          if (strokeBackEnemy) {
-            if (scoot.attack(strokeBackEnemy) === ERR_NOT_IN_RANGE) {
-              scoot.moveTo(strokeBackEnemy.pos);
-            }
-          }
-        } else {
-          scoot.moveTo(new RoomPosition(15,15, Defend.STRIKE_BACK_BENARD));
         }
       }
     });
