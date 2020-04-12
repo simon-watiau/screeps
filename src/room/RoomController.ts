@@ -8,8 +8,8 @@ import EnergyLogistic from "../behaviour/EnergyLogistic";
 import HarvestSource from "../behaviour/HarvestSource";
 import MineralLogistic from "../behaviour/MineralLogistic";
 import Repair from "../behaviour/Repair";
+import RoomEquilibrium from "../behaviour/RoomEquilibrium";
 import Tower from "../behaviour/Tower";
-import CloseWalls from "../CityPlanner/CloseWalls";
 import ControllerContainer from "../CityPlanner/ControllerContainer";
 import CreateExtension from "../CityPlanner/CreateExtensions";
 import CreateStorage from "../CityPlanner/CreateStorage";
@@ -19,6 +19,7 @@ import RoadBuilder from "../CityPlanner/RoadBuilder";
 import SourcesContainer from "../CityPlanner/SourcesContainer";
 import Towers from "../CityPlanner/Towers";
 import {factory} from "../utils/ConfigLog4J";
+import findTerminal from "../utils/findTerminal";
 import RoomStrategist from "./RoomStrategist";
 
 
@@ -41,13 +42,12 @@ class RoomController {
   private defender: Defend;
   private tower: Tower;
   private scoot?: ClaimNewRoom;
+  private roomEquilibrium: RoomEquilibrium;
 
   constructor(roomName: string) {
     this.roomName = roomName;
 
     this.logger = factory.getLogger("room." + this.roomName);
-
-    this.getRoomMemory(); // bootstrap memory
 
     this.charger = new ChargeController(this.roomName);
     this.repair = new Repair(this.roomName);
@@ -56,16 +56,17 @@ class RoomController {
     this.defender = new Defend(this.roomName);
     this.tower = new Tower(this.roomName);
     this.mineralLogistic = new MineralLogistic(this.roomName);
-
+    this.roomEquilibrium = new RoomEquilibrium(this.roomName);
     this.latestEnergyProduction = this.getEnergyInTransit();
     this.latestScreepsCount = this.getRoom().find(FIND_MY_CREEPS).length;
   }
 
   public tick() {
+
     if (this.getRoom().find(FIND_MY_SPAWNS).length === 0) {
       return;
     }
-    this.getEnergyInTransit();
+
     this.state = {
       ensureControllerContainer: false,
       ensureExtractor: false,
@@ -84,10 +85,10 @@ class RoomController {
       scoot: false
     };
 
-    // CreepsIndex.getInstance().init();
     Banker.getInstance(this.roomName).updateBankerState(this);
 
     RoomStrategist.nextStrategy(this);
+
     while (this.harvesters.length < this.state.expectedHarvesters) {
       const sources = HarvestSource.getFreeSources(this.getRoom(), this.harvesters);
       if (sources.length === 0) {
@@ -103,7 +104,7 @@ class RoomController {
       });
     }
 
-    this.logger.info('State: ' + JSON.stringify(this.state));
+    //this.logger.info('State: ' + JSON.stringify(this.state));
 
     this.repair.repair(this.state.expectedRepairers);
 
@@ -136,27 +137,21 @@ class RoomController {
       ControllerContainer.buildSite(this.getController().id);
     }
 
-    if (this.state.ensureRoadNetwork && Game.time % 20 === 0) {
+    if (this.state.ensureRoadNetwork && Game.time % 300 === 0) {
       RoadBuilder.buildRoads(this.getRoom());
     }
 
-    // if (this.state.ensureWalls && Game.time % 8 === 0) {
-    //   CloseWalls.placeWalls(this.getRoom());
-    // }
-
-    if (this.state.ensureTower && Game.time %70 === 0) {
+    if (this.state.ensureTower) {
       Towers.buildSite(this.getRoom());
     }
 
-    if (Game.time % 100 === 0) {
-      CreateExtension.placeExtension(this.getRoom());
-    }
+    CreateExtension.placeExtension(this.getRoom());
 
-    if (this.state.ensureStorage && Game.time % 25  === 0) {
+    if (this.state.ensureStorage) {
       CreateStorage.placeStorage(this.getRoom());
     }
 
-    if (this.state.ensureTerminal && Game.time % 150 === 0) {
+    if (this.state.ensureTerminal) {
       CreateTerminal.placeTerminal(this.getRoom());
     }
 
@@ -168,13 +163,9 @@ class RoomController {
       this.scoot.visit();
     }
 
-   // if (this.roomName === "W8N7") {
-   //    if (this.attacker.latestState === AttackSquad.STATE_DEAD) {
-   //      this.attacker.reboot();
-   //    }
-   //
-   //    this.attacker.tick();
-   // }
+    if (this.hasTerminal() && this.hasStorage()) {
+      this.roomEquilibrium.share();
+    }
   }
 
   public isControllerContainerCreated(): boolean {
@@ -248,13 +239,8 @@ class RoomController {
     return HarvestSource.countHarvesterByType(this.roomName, Source);
   }
 
-  public getAndUpdateEnergyProductionDelta() {
-    const currentDelta =  this.getEnergyInTransit() - this.latestEnergyProduction;
-    this.latestEnergyProduction = this.getEnergyInTransit();
-    return currentDelta;
-  }
-
   public attackDuration(): number {
+    // TODO store this info
       this.attackStart = this.isAttacked() ? this.attackStart || Game.time : undefined;
       if (!this.attackStart) {
         return -1;
@@ -268,12 +254,6 @@ class RoomController {
         position.findClosestByRange(FIND_HOSTILE_CREEPS) ||
         position.findClosestByRange(FIND_HOSTILE_POWER_CREEPS);
       return enemy !== null && (enemy.pos.x > 2 && enemy.pos.x < 38 && enemy.pos.y > 2 && enemy.pos.y < 38)
-  }
-
-  public getAndUpdateScreepsCountDelta() {
-    const currentDelta =  this.getRoom().find(FIND_MY_CREEPS).length - this.latestScreepsCount;
-    this.latestScreepsCount = this.getRoom().find(FIND_MY_CREEPS).length;
-    return currentDelta;
   }
 
   public getAllSourcesCount(): number {
@@ -325,8 +305,16 @@ class RoomController {
     return harvested;
   }
 
-  public isControllerUpgraded(): boolean {
-    return !!this.charger;
+  public hasEmergencyRepairs(): boolean {
+    return this.getRoom().find(FIND_STRUCTURES, {filter: object => object.hits/object.hitsMax <= 0.5}).length !== 0;
+  }
+
+  public getTerminal(): StructureTerminal| undefined {
+    return findTerminal(this.getRoom());
+  }
+
+  public hasTerminal(): boolean {
+    return !!this.getTerminal();
   }
 
   public getController(): StructureController {
@@ -337,33 +325,6 @@ class RoomController {
       throw new Error("This room doesn't have a controller");
     }
     return controller;
-  }
-
-  public getRoomMemory(): RoomMemory {
-    let memory = Memory.terraformedRoom[this.roomName];
-    if (!memory) {
-      memory = {
-        stateMachines: {},
-      };
-      Memory.terraformedRoom[this.roomName] = memory;
-    }
-
-    // update schema
-    if (!memory.stateMachines) {
-      memory.stateMachines = new Map<string, string>();
-    }
-
-    return memory;
-  }
-
-  public hasWalls() :boolean {
-    return this.getRoom().find(
-      FIND_STRUCTURES,
-      {
-        filter: (a) => a.structureType === STRUCTURE_WALL ||
-          a.structureType === STRUCTURE_RAMPART
-      }
-      ).length !== 0;
   }
 }
 export default RoomController;

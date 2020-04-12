@@ -3,6 +3,7 @@ import {Logger} from "typescript-logging";
 import Banker from "../Banker";
 import CreepsIndex from "../population/CreepsIndex";
 import StateMachine from "../StateMachine";
+import cachedData from "../utils/cachedData";
 import {factory} from "../utils/ConfigLog4J";
 import getCreepRole from "../utils/creeps/getCreepRole";
 import getCreepsByRole from "../utils/creeps/getCreepsByRole";
@@ -84,8 +85,6 @@ export default class HarvestSource {
    this.logger = factory.getLogger("harvester." + sourceId);
 
     this.targetId = sourceId;
-
-    this.logger.info('Started harvesting');
   }
 
   private getCreep(): Creep {
@@ -134,11 +133,22 @@ export default class HarvestSource {
 
   private findCloseContainer(): StructureContainer|undefined {
     const source = this.getTarget();
+    const containerId: Id<StructureContainer>|undefined = cachedData<Id<StructureContainer>|undefined>(
+      'harvest-close-container-' + source.id,
+      () => {
+        const containers = source.pos.findInRange<StructureContainer>(FIND_STRUCTURES, 1, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER});
 
-    const containers = source.pos.findInRange<StructureContainer>(FIND_STRUCTURES, 1, { filter: (a: OwnedStructure) => a.structureType === STRUCTURE_CONTAINER});
+        if (containers.length > 0) {
+          return containers[0].id;
+        }
 
-    if (containers.length > 0) {
-      return containers[0];
+        return undefined;
+      },
+      100
+    );
+
+    if (containerId) {
+      return Game.getObjectById<StructureContainer>(containerId) || undefined;
     }
 
     return undefined;
@@ -208,6 +218,11 @@ export default class HarvestSource {
       }
     }
 
+    if (closeConstructionSite && !harvester.store.getCapacity(RESOURCE_ENERGY) === null) {
+      harvester.suicide();
+      return;
+    }
+
     if (closeConstructionSite) {
       if (!harvester.pos.isEqualTo(closeConstructionSite.pos)) {
         harvester.moveTo(closeConstructionSite.pos);
@@ -216,13 +231,17 @@ export default class HarvestSource {
     }
 
     if (harvester.store.getFreeCapacity(RESOURCE_ENERGY) > 0 || harvester.store.getCapacity(RESOURCE_ENERGY) === null) {
-        if (harvester.harvest(source) === ERR_NOT_IN_RANGE) {
-          harvester.moveTo(source.pos);
-        }
+      const dropped = harvester.pos.findInRange(FIND_DROPPED_RESOURCES, 0, {filter: object => object.resourceType === RESOURCE_ENERGY});
+      if (dropped.length > 0) {
+        harvester.pickup(dropped[0]);
+      }else if (harvester.harvest(source) === ERR_NOT_IN_RANGE) {
+        harvester.moveTo(source.pos);
+      }
     }
 
     if (harvester.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
       if (closeConstructionSite) {
+        harvester.say('building');
         harvester.build(closeConstructionSite);
       }else if (closeContainer) {
         if (this.isSource()) {

@@ -11,14 +11,8 @@ export default class RoomStrategist {
   public static nextStrategy(roomController: RoomController) {
 
     // setup defense
-    if (roomController.isAttacked()) {
-      if (!roomController.hasTower() || roomController.attackDuration() > 10 ) {
-      //   roomController.state.expectedDefendersCount = 2;
-      //   roomController.triggerSafeModeIfAvailable();
-      // }
-      // if (roomController.attackDuration() > 30) {
-        roomController.state.expectedDefendersCount = 5;
-      // }
+    if (roomController.isAttacked() && roomController.attackDuration() > 10) {
+      roomController.state.expectedDefendersCount = 5;
     }
 
     roomController.state.expectedHarvesters = 1;
@@ -34,8 +28,8 @@ export default class RoomStrategist {
     }
 
     // Logistic to bring back to the spawn
-    roomController.state.expectedLogisticCount = 1;
-
+    roomController.state.expectedLogisticCount = Math.max(1, roomController.state.expectedLogisticCount);
+    roomController.state.expectedChargerCount = 1;
     // Stop until we have at least one logistic and one harvester
     if (roomController.getLogisticsCount() < 1 || roomController.getHarvestersCount() < 1) {
       return;
@@ -43,13 +37,15 @@ export default class RoomStrategist {
 
     // Then start building the controller container and wait for it
     roomController.state.expectedBuilders = 3;
-    roomController.state.expectedChargerCount = 1;
     roomController.state.ensureControllerContainer = true;
-
+    roomController.state.expectedChargerCount = 3;
     if (!roomController.isControllerContainerCreated()) {
       return;
     }
+    roomController.state.expectedChargerCount = 3;
+
     roomController.state.expectedBuilders = 2;
+
     // Then add support creeps and fully harvest all sources
     roomController.state.expectedHarvesters = roomController.getAllSourcesCount();
     roomController.state.expectedLogisticCount = 2;
@@ -60,7 +56,6 @@ export default class RoomStrategist {
    }
 
    // And then bump population
-    roomController.state.expectedChargerCount = 3;
     roomController.state.expectedRepairers = roomController.hasTower() ? 0 : 1;
     roomController.state.ensureRoadNetwork = true;
     roomController.state.ensureTower = true;
@@ -79,26 +74,24 @@ export default class RoomStrategist {
       roomController.state.expectedRepairers = 3;
     }
 
+    // At GPL 4 ensure storage
+    if (roomController.getController().level >= 4) {
+      roomController.state.ensureStorage = true;
+    }
+
+    if (roomController.getController().level >= 5) {
+      roomController.state.ensureTerminal = true;
+    }
+
+    // At GPL 6 ensure extractor
     if (roomController.getController().level >= 6) {
       roomController.state.ensureExtractor = true;
       roomController.state.expectedMineralLogisticCount = 1;
     }
 
-    if (roomController.getController().level >= 4) {
-      roomController.state.ensureStorage = true;
-    }
-
-    if (roomController.getController().level >= 4) {
-      roomController.state.ensureTerminal = true;
-    }
-
-    // if (roomController.getController().level >= 2) {
-    //   roomController.state.ensureWalls = true;
-    // }
-
     // Adapt on demand
     if (roomController.needAdvancedBuilder()) {
-      roomController.state.expectedBuilders = 4;
+      roomController.state.expectedBuilders = 1;
     }
 
     // Every 20 ticks eval the need for logistics

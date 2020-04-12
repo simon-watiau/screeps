@@ -31,7 +31,8 @@ export default class Defend {
 
   protected findEnemies(position: RoomPosition): AnyCreep|Structure|null {
     const opts = {filter: (o: RoomObject) => o.pos.x > 2 && o.pos.x < 38 && o.pos.y > 2 && o.pos.y < 38};
-    return position.findClosestByRange(FIND_HOSTILE_SPAWNS, opts) ||
+    return position.findClosestByRange(FIND_HOSTILE_STRUCTURES, opts) ||
+      position.findClosestByRange(FIND_HOSTILE_SPAWNS, opts) ||
       position.findClosestByRange(FIND_HOSTILE_CREEPS, opts) ||
       position.findClosestByRange(FIND_HOSTILE_POWER_CREEPS, opts);
   }
@@ -64,6 +65,8 @@ export default class Defend {
         if (scoot.attack(enemy) !== OK && scoot.rangedAttack(enemy) !== OK) {
           scoot.moveTo(enemy.pos);
         }
+      } else {
+        scoot.moveTo(new RoomPosition(10,10, 'W7N9'));
       }
     });
   }

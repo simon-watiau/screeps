@@ -32,9 +32,12 @@ export default class Repair {
 
     const repairers = this.getRepaires();
 
-    const toRepair = Repair.findStructureToRepair(this.getRoom());
-
+    let toRepair = Repair.findInfraToRepair(this.getRoom());
     if (!toRepair) {
+      toRepair = Repair.findStructureToRepair(this.getRoom());
+    }
+
+    if (toRepair === undefined) {
       this.logger.info("Nothing to repair, stand by");
       return;
     }
@@ -68,10 +71,10 @@ export default class Repair {
       }
 
       if (repairer.memory.objective === Repair.OBJECTIVE_REPAIR) {
-        const r = repairer.repair(toRepair);
+        const r = repairer.repair(toRepair as Structure);
         if (r === ERR_NOT_IN_RANGE) {
           repairer.say("+Repair");
-          repairer.moveTo(toRepair, {visualizePathStyle: drawingOpts('#3cb8ff')});
+          repairer.moveTo(toRepair as Structure, {visualizePathStyle: drawingOpts('#3cb8ff')});
         }
       }
 
@@ -93,12 +96,23 @@ export default class Repair {
     return room;
   }
 
+  public static findInfraToRepair(room: Room): Structure|undefined {
+    const targets = room.find(FIND_STRUCTURES, {
+      filter: object => {
+        return object.structureType !== STRUCTURE_ROAD && object.hits < object.hitsMax
+      }
+    }).sort((a, b) => a.hits - b.hits);
+
+    if (targets.length === 0) {
+      return undefined;
+    }
+
+    return targets[0];
+  }
+
   public static findStructureToRepair(room: Room): Structure|undefined {
     const targets = room.find(FIND_STRUCTURES, {
       filter: object => {
-        if (object instanceof StructureRampart || object instanceof StructureWall) {
-          return object.hits < 30000;
-        }
         return object.hits < object.hitsMax
       }
     }).sort((a, b) => a.hits - b.hits);

@@ -1,6 +1,28 @@
 
 export default class CreateExtension {
   public static placeExtension(room: Room) {
+    if (!room.controller) {
+      throw new Error("no controller in this room");
+    }
+    let extensionCount = 0;
+    switch (room.controller.level) {
+      case 2:
+        extensionCount = 5;
+        break;
+      case 3:
+        extensionCount = 10;
+        break;
+      default:
+        extensionCount = (room.controller.level - 2) * 10;
+        break;
+    }
+
+    const existingExtensions = room.find(FIND_MY_STRUCTURES, {filter: object => object.structureType === STRUCTURE_EXTENSION}).length;
+    const extensionsBeingBuilt = room.find(FIND_CONSTRUCTION_SITES, {filter: object => object.structureType === STRUCTURE_EXTENSION}).length;
+    if (existingExtensions + extensionsBeingBuilt >= extensionCount) {
+      return;
+    }
+
     const spawns = room.find(FIND_MY_SPAWNS);
 
     if (spawns.length === 0) {

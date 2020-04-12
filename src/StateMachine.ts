@@ -16,25 +16,13 @@ export default abstract class StateMachine {
   }
 
   private getInitialState(requestedState: string) {
-    const roomMemory = Memory.terraformedRoom[this.roomName];
-    if (!roomMemory) {
-      throw new Error("Invalid room name");
-    }
+    Memory.stateMachines = Memory.stateMachines || new Map<string, string>();
 
-    return roomMemory.stateMachines[this.stateMachineName] || requestedState;
-  }
-
-  public getRoomMemory(): RoomMemory {
-    const memory = Memory.terraformedRoom[this.roomName];
-    if (!memory) {
-     throw new Error('no memory');
-    }
-
-    return memory;
+    return Memory.stateMachines[this.stateMachineName] || requestedState;
   }
 
   public reboot() {
-    this.getRoomMemory().stateMachines[this.stateMachineName] = this.initState;
+    Memory.stateMachines[this.stateMachineName] = this.initState;
     this.latestState = this.initState;
   }
 
@@ -46,7 +34,7 @@ export default abstract class StateMachine {
       this.logger.info('Switched to state ' + newState);
     }
 
-    this.getRoomMemory().stateMachines[this.stateMachineName] = newState;
+    Memory.stateMachines[this.stateMachineName] = newState;
 
     return newState;
   }

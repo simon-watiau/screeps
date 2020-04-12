@@ -2,11 +2,13 @@ import _ from "lodash";
 import {Logger} from "typescript-logging";
 import Banker from "../Banker";
 import CreepsIndex from "../population/CreepsIndex";
+import cachedData from "../utils/cachedData";
 import {factory} from "../utils/ConfigLog4J";
 import getCreepRole from "../utils/creeps/getCreepRole";
 import getCreepsByRole from "../utils/creeps/getCreepsByRole";
 import drawingOpts from "../utils/PathDrawing";
 import Tower from "./Tower";
+import undefinedError = Mocha.utils.undefinedError;
 
 export default class EnergyLogistic {
   public static ROLE = 'logistic';
@@ -21,8 +23,6 @@ export default class EnergyLogistic {
   public roomName: string;
   private logger: Logger;
   private controllerContainerId: Id<StructureContainer>|undefined;
-  private cachedSources:AnyStoreStructure[]|undefined;
-  private cachedDestinations:AnyStoreStructure[]|undefined;
 
   constructor(roomName: string) {
     this.roomName = roomName;
@@ -69,6 +69,15 @@ export default class EnergyLogistic {
     }
 
     scoots.forEach((scoot: Creep) => {
+      if (scoot.spawning) {
+        return;
+      }
+
+      if ((scoot.ticksToLive || 0) < 80 && scoot.store.getUsedCapacity() === 0) {
+        scoot.say('BYE');
+        scoot.suicide();
+        return;
+      }
       if (!scoot.memory.meta) {
         scoot.memory.meta = {};
         scoot.memory.meta[EnergyLogistic.META_DESTINATION] = undefined;
@@ -141,80 +150,120 @@ export default class EnergyLogistic {
     return spawns[0];
   }
 
-  private getDestinations(): AnyStoreStructure[] {
-    const destinations: AnyStoreStructure[] = [];
-
+  private doesControllerNeedCash():boolean {
     const controller = this.getRoom().controller;
-    const banker = Banker.getInstance(this.roomName);
-
-    // send to towers
-    let towers = this.getRoom().find<StructureTower>(FIND_STRUCTURES, {
-      filter: (a: any) => a.structureType === STRUCTURE_TOWER && a.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-    });
-
-    towers = towers.sort((t1, t2) => t2.store.getFreeCapacity(RESOURCE_ENERGY) - t1.store.getFreeCapacity(RESOURCE_ENERGY));
-
-    towers.forEach(value => {
-      const skipTower = Tower.atRepairThreshold(value) && banker.needCash();
-      if (!skipTower) {
-        destinations.push(value);
-      }
-    });
-
-    // send to spawn and extensions
-    const spawn = this.getSpawn();
-    if (spawn && spawn.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-      destinations.push(spawn);
+    if (!controller) {
+      return false;
     }
 
-    this.getRoom().find<StructureExtension>(FIND_STRUCTURES, {
-      filter: (a: any) => a.structureType === STRUCTURE_EXTENSION &&
-        a.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-    }).forEach(value => {
-      destinations.push(value);
-    });
-
-    if (controller) {
-      const container = controller.pos.findClosestByPath<StructureContainer>(FIND_STRUCTURES, {
-        filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getFreeCapacity(RESOURCE_ENERGY) > 500
-      });
-      if (container) {
-        destinations.push(container);
-      }
+    switch (controller.level) {
+      case 1:
+        return controller.ticksToDowngrade < 20000 * 0.4;
+      case 2:
+        return controller.ticksToDowngrade < 10000 * 0.6;
+      case 3:
+        return controller.ticksToDowngrade < 20000;
+      case 4:
+        return controller.ticksToDowngrade < 40000;
+      case 5:
+        return controller.ticksToDowngrade < 80000;
+      case 6:
+        return controller.ticksToDowngrade < 120000;
+      case 7:
+        return controller.ticksToDowngrade < 150000;
+      case 8:
+        return controller.ticksToDowngrade < 200000 * 0.5;
+      default:
+        return true;
     }
-
-    // move to storage
-    const storages = this.getRoom().find<StructureStorage>(FIND_MY_STRUCTURES, {
-      filter: (a: any) => a.structureType === STRUCTURE_STORAGE && a.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-    });
-
-    if (storages.length > 0) {
-      destinations.push(storages[0]);
-    }
-
-    return destinations;
   }
 
-  private getSources(): AnyStoreStructure[] {
-    const sources: AnyStoreStructure[] = [];
+  private getDestinations(): Array<Id<AnyStoreStructure>> {
+    return cachedData<Array<Id<AnyStoreStructure>>>(
+      'logistics-destination-'+ this.roomName,
+      () => {
+        const destinations: Array<Id<AnyStoreStructure>> = [];
 
-    const controller = this.getRoom().controller;
+        const controller = this.getRoom().controller;
+        const banker = Banker.getInstance(this.roomName);
 
-    if (!controller) {
-      throw new Error("No controller in this room");
-    }
+        const controllerNeedCash = this.doesControllerNeedCash();
 
-    this.getRoom().find<StructureContainer>(FIND_STRUCTURES, {
-      filter: (a: any) => {
-        return ([STRUCTURE_CONTAINER, STRUCTURE_STORAGE].includes(a.structureType) && a.store.getUsedCapacity(RESOURCE_ENERGY) > 100);
+        // send to towers
+        let towers = this.getRoom().find<StructureTower>(FIND_STRUCTURES, {
+          filter: (a: any) => a.structureType === STRUCTURE_TOWER && a.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+        });
+
+        towers = towers.sort((t1, t2) => t2.store.getFreeCapacity(RESOURCE_ENERGY) - t1.store.getFreeCapacity(RESOURCE_ENERGY));
+
+        towers.forEach(value => {
+          const skipTower = Tower.atRepairThreshold(value) &&
+            !Tower.asEmergencyRepairs(value) &&
+            (banker.needCash() || controllerNeedCash);
+          if (!skipTower) {
+            destinations.push(value.id);
+          }
+        });
+
+        // send to spawn and extensions
+        const spawn = this.getSpawn();
+        if (spawn && spawn.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+          destinations.push(spawn.id);
+        }
+
+        this.getRoom().find<StructureExtension>(FIND_STRUCTURES, {
+          filter: (a: any) => a.structureType === STRUCTURE_EXTENSION &&
+            a.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+        }).forEach(value => {
+          destinations.push(value.id);
+        });
+
+        if (controller) {
+          const container = controller.pos.findClosestByPath<StructureContainer>(FIND_STRUCTURES, {
+            filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getFreeCapacity(RESOURCE_ENERGY) > 500
+          });
+          if (container) {
+            destinations.push(container.id);
+          }
+        }
+
+        // move to storage
+        const storages = this.getRoom().find<StructureStorage>(FIND_MY_STRUCTURES, {
+          filter: (a: any) => a.structureType === STRUCTURE_STORAGE && a.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+        });
+
+        if (storages.length > 0) {
+          destinations.push(storages[0].id);
+        }
+
+        return destinations;
+      },
+      5
+    );
+  }
+
+  private getSources(): Array<Id<AnyStoreStructure>> {
+    return cachedData<Array<Id<AnyStoreStructure>>>('logistics-sources-' + this.roomName, () => {
+      const sources: Array<Id<AnyStoreStructure>> = [];
+
+      const controller = this.getRoom().controller;
+
+      if (!controller) {
+        throw new Error("No controller in this room");
       }
-    }).sort((s1: StructureContainer, s2:StructureContainer): number => {
-      return s2.store.getUsedCapacity(RESOURCE_ENERGY)/s2.store.getCapacity(RESOURCE_ENERGY) - s1.store.getUsedCapacity(RESOURCE_ENERGY)/s1.store.getCapacity(RESOURCE_ENERGY) ;
-    }).forEach(value => {
-      sources.push(value);
-    });
 
-    return sources;
+      this.getRoom().find<StructureContainer>(FIND_STRUCTURES, {
+        filter: (a: any) => {
+          return ([STRUCTURE_CONTAINER, STRUCTURE_STORAGE].includes(a.structureType) && a.store.getUsedCapacity(RESOURCE_ENERGY) > 100 && a.pos.getRangeTo(controller) > 4);
+        }
+      }).sort((s1: StructureContainer, s2:StructureContainer): number => {
+        return s2.store.getUsedCapacity(RESOURCE_ENERGY)/s2.store.getCapacity(RESOURCE_ENERGY) - s1.store.getUsedCapacity(RESOURCE_ENERGY)/s1.store.getCapacity(RESOURCE_ENERGY);
+      }).forEach(value => {
+        sources.push(value.id);
+      });
+
+      return sources;
+    }, 3);
   }
 
   private computeAffectedLogistics(id: Id<AnyStoreStructure>): number {
@@ -228,7 +277,7 @@ export default class EnergyLogistic {
     const sources = this.getSources();
     if (
       source &&
-      sources.includes(source) &&
+      sources.includes(creep.memory.meta[EnergyLogistic.META_DESTINATION]) &&
       (!destination || source.id !== destination.id)
     ) {
       return source;
@@ -238,16 +287,16 @@ export default class EnergyLogistic {
     for (let i =0 ; i < sources.length && !bestSource; i ++) {
       const cursor = sources[i];
       if (
-        this.computeAffectedLogistics(cursor.id) < 4 &&
-        (!destination || cursor.id !== destination.id) &&
+        this.computeAffectedLogistics(cursor) < 4 &&
+        (!destination || cursor !== destination.id) &&
        (
          !destination ||
          destination instanceof Spawn ||
          destination instanceof StructureExtension ||
-           cursor.id !== this.controllerContainerId
+           cursor !== this.controllerContainerId
        )
       ) {
-          bestSource = cursor;
+          bestSource = Game.getObjectById(cursor) as AnyStoreStructure;
       }
     }
 
@@ -263,7 +312,7 @@ export default class EnergyLogistic {
     const destinations = this.getDestinations();
     if (affect &&
         destination &&
-      destinations.includes(destination)
+      destinations.includes(creep.memory.meta[EnergyLogistic.META_DESTINATION])
     ) {
       return destination;
     }
@@ -273,9 +322,9 @@ export default class EnergyLogistic {
       const cursor = destinations[i];
 
       if (
-        this.computeAffectedLogistics(cursor.id) < EnergyLogistic.MAX_PER_POS
+        this.computeAffectedLogistics(cursor) < EnergyLogistic.MAX_PER_POS
       ) {
-        bestDestination = cursor;
+        bestDestination = Game.getObjectById(cursor) as AnyStoreStructure;
       }
     }
 

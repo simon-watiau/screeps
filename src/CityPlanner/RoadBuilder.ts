@@ -7,7 +7,6 @@ export default class RoadBuilder {
     const destinations = room.find<StructureContainer>(FIND_STRUCTURES, {
       filter: (a: OwnedStructure) => {
         return a.structureType === STRUCTURE_CONTAINER ||
-          a.structureType === STRUCTURE_EXTENSION ||
           a.structureType === STRUCTURE_SPAWN ||
           a.structureType === STRUCTURE_CONTROLLER ||
           a.structureType === STRUCTURE_TOWER;

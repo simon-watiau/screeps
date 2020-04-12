@@ -78,9 +78,6 @@ export default class Builder {
   }
 
   public build(count: number) {
-    if (count === 0) {
-      return;
-    }
 
     const workPlace = this.getWorkPlace();
 

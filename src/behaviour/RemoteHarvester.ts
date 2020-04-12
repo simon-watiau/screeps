@@ -14,15 +14,15 @@ export default class RemoteHarvester {
   private static OBJECTIVE_STORE = "filling";
   private static OBJECTIVE_HARVEST = "refill";
 
-  public position: RoomPosition;
+  public flag: Flag;
   private logger: Logger;
   private harvesterCount: number = 1;
   private fineTuned: boolean = false;
   private refreshTick:number;
   private closestStorage: Id<StructureStorage>|undefined;
 
-  constructor(position: RoomPosition) {
-    this.position = position;
+  constructor(flag: Flag) {
+    this.flag = flag;
     this.logger = factory.getLogger("remote_harvester." + this.getTargetPositionAtString());
     this.refreshTick = Math.floor(Math.random() * Math.floor(10));
     const storages:StructureStorage[] = [];
@@ -36,7 +36,7 @@ export default class RemoteHarvester {
 
     let distance = Number.MAX_SAFE_INTEGER;
     storages.forEach((s: StructureStorage) => {
-      const newDistance = Game.map.getRoomLinearDistance(this.position.roomName, s.pos.roomName);
+      const newDistance = Game.map.getRoomLinearDistance(this.flag.pos.roomName, s.pos.roomName);
       if (newDistance < distance) {
         this.closestStorage = s.id;
         distance = newDistance;
@@ -49,7 +49,7 @@ export default class RemoteHarvester {
   }
 
   private getTargetPositionAtString() : string {
-    return this.position.x + "-" + this.position.y + '-' + this.position.roomName;
+    return this.flag.pos.x + "-" + this.flag.pos.y + '-' + this.flag.pos.roomName;
   }
 
   private getStorage(): StructureStorage {
@@ -62,7 +62,7 @@ export default class RemoteHarvester {
   }
 
   private getSource():Source {
-    const foundSources = this.position.lookFor(LOOK_SOURCES);
+    const foundSources = this.flag.pos.lookFor(LOOK_SOURCES);
 
     if (foundSources.length === 0) {
       throw new Error("Source not found");
@@ -80,11 +80,12 @@ export default class RemoteHarvester {
     if (scoots.length < this.harvesterCount) {
       const index = CreepsIndex.getInstance();
 
-      index.requestRemoteHarvester(this.position, creep => {
+      index.requestRemoteHarvester(this.flag.pos, creep => {
         creep.memory.role = getCreepRole(RemoteHarvester.ROLE, this.getTargetPositionAtString());
       });
     }
 
+    let canHarvest = true;
     scoots.forEach((scoot: Creep) => {
       if (scoot.store.getCapacity() === 0 && (scoot.ticksToLive || Number.MAX_SAFE_INTEGER) < 200) {
         scoot.suicide();
@@ -102,17 +103,21 @@ export default class RemoteHarvester {
       if (scoot.memory.objective === RemoteHarvester.OBJECTIVE_HARVEST) {
         scoot.say("-remote");
 
-        if (scoot.room.name === this.position.roomName) {
+        if (scoot.room.name === this.flag.pos.roomName) {
           const source = this.getSource();
           if (!this.fineTuned && Game.time % this.refreshTick === 0) {
             this.fineTuned = true;
-            this.harvesterCount = Math.max(1, Math.round(PathFinder.search(this.getSource().pos, this.getStorage().pos).path.length / 10));
+            this.harvesterCount = Math.max(1, Math.round(PathFinder.search(this.getSource().pos, this.getStorage().pos).path.length / 20));
           }
-          if (scoot.harvest(source) === ERR_NOT_IN_RANGE) {
+          const res = scoot.harvest(source);
+          if (res === ERR_NOT_IN_RANGE) {
             scoot.moveTo(source, {visualizePathStyle: drawingOpts('#ff5ee1')});
           }
+          if (res === ERR_NOT_OWNER) {
+            canHarvest = false;
+          }
         } else {
-          scoot.moveTo(this.position, {visualizePathStyle: drawingOpts('#ff5ee1')});
+          scoot.moveTo(this.flag.pos, {visualizePathStyle: drawingOpts('#ff5ee1')});
         }
       }
 
@@ -125,5 +130,10 @@ export default class RemoteHarvester {
         }
       }
     });
+
+    if (!canHarvest) {
+      scoots.forEach(value => value.suicide());
+      throw new Error("Can't harvest");
+    }
   }
 }

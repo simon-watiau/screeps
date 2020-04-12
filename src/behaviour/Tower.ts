@@ -29,6 +29,10 @@ export default class Tower {
     return (tower.store.getUsedCapacity(RESOURCE_ENERGY) || 0) / (tower.store.getCapacity(RESOURCE_ENERGY) || 1) > Tower.MIN_RATIO_FOR_REPAIR - 0.10;
   }
 
+  public static asEmergencyRepairs(tower: StructureTower): boolean {
+    return Repair.findInfraToRepair(tower.room) !== undefined;
+  }
+
   public activate() {
     const towers = this.getTowers();
 
@@ -39,8 +43,13 @@ export default class Tower {
       if (enemy) {
         tower.attack(enemy);
         return ;
-      }else if (Tower.canRepair(tower)) {
-        const toRepair = Repair.findStructureToRepair(this.getRoom());
+      } else if (Tower.canRepair(tower)) {
+
+        let toRepair = Repair.findInfraToRepair(this.getRoom());
+        if (!toRepair) {
+          toRepair = Repair.findStructureToRepair(this.getRoom());
+        }
+
         if (toRepair) {
           tower.repair(toRepair);
         }
@@ -53,6 +62,7 @@ export default class Tower {
     if (!room) {
       throw new Error("Room does not exist");
     }
+
     return room;
   }
 }

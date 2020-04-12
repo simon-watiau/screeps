@@ -11,22 +11,30 @@ interface CreepMemory {
 interface Memory {
   uuid: number;
   log: any;
-  terraformedRoom: {
-    [roomName: string]: RoomMemory
+  cached: {
+    [key: string] : {
+      timestamp: number,
+      data: any
+    }
   },
+  stateMachines: {
+    [name: string]: string
+  }
   intel: {
-    [roomName: string]: IntelState[]
+    rooms: {
+      [roomName: string]: IntelState[]
+    }
   }
 }
 
 interface IntelState {
-  timestamp?:number,
-  towersCount: number,
-  towersPowerLeft: number
+  timestamp:number,
+  isHostile: boolean,
+  powerTTL: number,
+  isReachable: boolean,
 }
 
 interface RoomMemory {
-  stateMachines: any,
   controller?: Id<StructureController>
 }
 

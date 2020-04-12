@@ -1,10 +1,10 @@
 import _ from "lodash";
-import CreepsIndex from "./population/CreepsIndex";
-import StateMachine from "./StateMachine";
-import {factory} from "./utils/ConfigLog4J";
-import getCreepRole from "./utils/creeps/getCreepRole";
-import getCreepsByRole from "./utils/creeps/getCreepsByRole";
-import findCloseBuildSite from "./utils/findCloseBuildSite";
+import CreepsIndex from "../population/CreepsIndex";
+import StateMachine from "../StateMachine";
+import {factory} from "../utils/ConfigLog4J";
+import getCreepRole from "../utils/creeps/getCreepRole";
+import getCreepsByRole from "../utils/creeps/getCreepsByRole";
+import findCloseBuildSite from "../utils/findCloseBuildSite";
 
 export default class BootstrapRoom extends StateMachine{
   public static CENTER = 25;

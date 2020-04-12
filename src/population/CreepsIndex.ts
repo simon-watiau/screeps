@@ -565,6 +565,7 @@ class CreepsIndex {
     if (availableSpawns.length === 0) {
       return;
     }
+
     let bestSpawn: StructureSpawn|undefined;
 
     // if there is a spawn in the room, this one will be used no mater what
@@ -578,65 +579,18 @@ class CreepsIndex {
       return bestSpawn;
     }
 
-    bestSpawn = availableSpawns[0];
-
-    const goals = _.map(availableSpawns, (spawn: StructureSpawn) => {
-      return { pos: spawn.pos, range: 1 };
-    });
-
-    const opts: PathFinderOpts = {
-      roomCallback: (roomName: string): boolean|CostMatrix => {
-        const room = Game.rooms[roomName];
-        if (!room) {
-          return false
-        }
-
-        const costs = new PathFinder.CostMatrix;
-
-        room.find(FIND_STRUCTURES).forEach((struct: Structure)  => {
-          if (struct.structureType === STRUCTURE_ROAD) {
-            // Favor roads over plain tiles
-            costs.set(struct.pos.x, struct.pos.y, 1);
-          } else if (struct.structureType !== STRUCTURE_CONTAINER &&
-            (struct.structureType !== STRUCTURE_RAMPART ||
-              !(struct instanceof OwnedStructure))) {
-            costs.set(struct.pos.x, struct.pos.y, 0xff);
-          }
-        });
-
-        // Avoid creeps in the room
-        room.find(FIND_CREEPS).forEach((creep) => {
-          costs.set(creep.pos.x, creep.pos.y, 0xff);
-        });
-
-        return costs;
+    let minDistance = Infinity;
+    availableSpawns.forEach(spawn => {
+      const distance = Game.map.getRoomLinearDistance(spawn.pos.roomName, target.roomName);
+      if (
+        spawn.spawning ||
+        distance > minDistance
+      ) {
+        return;
       }
-    };
 
-    const ret = PathFinder.search(
-      target, goals, opts
-
-    );
-
-    if (!ret) {
-      console.log("NO PATH");
-      return;
-    }
-
-    const pos: RoomPosition = ret.path[0];
-    if (ret.path.length === 0) {
-      // Because if it's next to the spawn no path is needed.
-      return availableSpawns[0];
-    }
-
-
-    let bestSpawnDistance: number = -1;
-    availableSpawns.forEach((spawn: StructureSpawn) => {
-      const currentDistance: number = Math.abs(pos.x - spawn.pos.x) +  Math.abs(pos.x - spawn.pos.x);
-      if (bestSpawnDistance === -1 || currentDistance < bestSpawnDistance) {
-        bestSpawn = spawn;
-        bestSpawnDistance = currentDistance;
-      }
+      minDistance = distance;
+      bestSpawn = spawn;
     });
 
     return bestSpawn;

@@ -15,7 +15,7 @@ class FinancesState {
   }
 }
 
-interface Financing {
+export interface Financing {
   type: string;
   amount: number;
 }
@@ -136,8 +136,7 @@ export default class Banker {
         break;
       case Banker.TYPE_TANK:
       case Banker.TYPE_ATTACK: {
-        const isFull = this.getLastHistoryItem().percentageUsed === 1;
-        if (isFull) {
+        if (this.isFull()) {
           financing.amount = this.getLastHistoryItem().currentEnergyAvailable - this.defenseBudget();
         } else {
           financing.amount = 0;
@@ -156,7 +155,7 @@ export default class Banker {
       case Banker.TYPE_REMOTE_HARVESTER: {
         // Spawn a lot of them but weak, since they are mostly going to travel
         const energy = this.getLastHistoryItem().currentEnergyAvailable - this.defenseBudget();
-        if (energy >= 300) {
+        if (energy >= 300 && this.isFull()) {
           financing.amount = 300;
         } else {
           financing.amount = 0;
@@ -180,13 +179,13 @@ export default class Banker {
   }
 
   public dump() {
-    this.logger.info("BANK:" + JSON.stringify({
-      'current_energy': this.getLastHistoryItem().currentEnergyAvailable,
-      'defense_budget': this.defenseBudget(),
-      'income_rate': this.averageEnergyGainedPerTick(),
-      'max_capacity': this.getLastHistoryItem().maxCapacity,
-      'percentage_used': this.getLastHistoryItem().percentageUsed,
-    }));
+    // this.logger.info("BANK:" + JSON.stringify({
+    //   'current_energy': this.getLastHistoryItem().currentEnergyAvailable,
+    //   'defense_budget': this.defenseBudget(),
+    //   'income_rate': this.averageEnergyGainedPerTick(),
+    //   'max_capacity': this.getLastHistoryItem().maxCapacity,
+    //   'percentage_used': this.getLastHistoryItem().percentageUsed,
+    // }));
   }
 
   public pushToHistory(state: FinancesState): void {

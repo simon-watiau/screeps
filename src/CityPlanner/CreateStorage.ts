@@ -1,6 +1,11 @@
+import findStorage from "../utils/findStorage";
 
 export default class CreateExtension {
   public static placeStorage(room: Room) {
+    if (!!findStorage(room) || room.find(FIND_CONSTRUCTION_SITES, {filter: object => object.structureType === STRUCTURE_STORAGE}).length !== 0) {
+      return;
+    }
+
     const spawns = room.find(FIND_MY_SPAWNS);
 
     if (spawns.length === 0) {

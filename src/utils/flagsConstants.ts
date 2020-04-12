@@ -21,12 +21,7 @@ export default class FlagsConstants {
     return roomNames;
   }
 
-  public static getRemoteSourcesPos(): RoomPosition[] {
-    const sources: RoomPosition[] = [];
-    Object.values(Game.flags).filter((f: Flag) => f.color === this.FLAG_REMOTE_HARVEST).forEach((f: Flag) => {
-      sources.push(f.pos);
-    });
-
-    return sources;
+  public static getRemoteSourcesFlags(): Flag[] {
+    return Object.values(Game.flags).filter((f: Flag) => f.color === this.FLAG_REMOTE_HARVEST);
   }
 }

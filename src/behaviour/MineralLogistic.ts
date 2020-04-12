@@ -30,13 +30,11 @@ export default class MineralLogistic {
   }
 
   public move(count: number) {
-    if (count === 0) {
-      return;
-    }
+    const source = this.getSource();
 
     const scoots = this.getLogistics();
 
-    if (scoots.length < count) {
+    if (scoots.length < count && source !== undefined && source.store.getUsedCapacity() > 0) {
       const destination = this.getDestination();
       const index = CreepsIndex.getInstance();
 
@@ -65,19 +63,24 @@ export default class MineralLogistic {
       if (scoot.memory.objective === MineralLogistic.OBJECTIVE_REFILL) {
         scoot.say("-fill");
 
-        const source = this.getCreepSource(scoot);
-        if (!source) {
+        const targetSource = this.getCreepSource(scoot);
+        if (!targetSource) {
           scoot.say('source ?');
+
+          if (scoot.store.getUsedCapacity() > 0) {
+            scoot.memory.objective = MineralLogistic.OBJECTIVE_FILL;
+            scoot.memory.meta[MineralLogistic.META_DESTINATION] = undefined;
+          }
           return;
         }
-        const types = Object.keys(source.store).filter(value => value !== RESOURCE_ENERGY);
+        const types = Object.keys(targetSource.store).filter(value => value !== RESOURCE_ENERGY);
         if (types.length === 0) {
           throw new Error('no content');
         }
         const type = types[0];
 
-        if (scoot.withdraw(source, type as ResourceConstant) === ERR_NOT_IN_RANGE) {
-          scoot.moveTo(source, {visualizePathStyle: drawingOpts('#ffce0b')});
+        if (scoot.withdraw(targetSource, type as ResourceConstant) === ERR_NOT_IN_RANGE) {
+          scoot.moveTo(targetSource, {visualizePathStyle: drawingOpts('#ffce0b')});
         }
       }
 
@@ -135,11 +138,20 @@ export default class MineralLogistic {
     return undefined;
   }
 
-  private getSource() : StructureContainer|undefined {
+  private getSource() : StructureContainer|Tombstone|undefined {
     const controller = this.getRoom().controller;
 
     if (!controller) {
       throw new Error("No controller in this room");
+    }
+    const tombstones = this.getRoom().find(FIND_TOMBSTONES, {
+      filter: (a: any) => {
+        return Object.keys(a.store).filter(value => value !== RESOURCE_ENERGY).length !== 0
+      }
+    });
+
+    if (tombstones.length > 0) {
+      return tombstones[0];
     }
 
      const sources = this.getRoom().find<StructureContainer>(FIND_STRUCTURES, {

@@ -27,13 +27,10 @@ export default class ChargeController
 
   public charge(count: number) {
     const scoots = this.getChargers();
-    const container = this.getClosestContainer(this.getController());
+    const container = this.getClosestContainer();
 
-    if (!container) {
-      return;
-    }
 
-    if (scoots.length < count) {
+    if (scoots.length < count && container) {
       const index = CreepsIndex.getInstance();
       index.requestCharger(container.pos, creep => {
         creep.memory.role = getCreepRole(ChargeController.ROLE, this.roomName);
@@ -49,7 +46,7 @@ export default class ChargeController
         scoot.memory.objective = ChargeController.OBJECTIVE_REFILL;
       }
 
-      if (scoot.store.getFreeCapacity(RESOURCE_ENERGY) === 0 && scoot.memory.objective === ChargeController.OBJECTIVE_REFILL) {
+      if ((scoot.store.getFreeCapacity(RESOURCE_ENERGY) === 0 || scoot.store.getUsedCapacity(RESOURCE_ENERGY) !== 0 && !container) && scoot.memory.objective === ChargeController.OBJECTIVE_REFILL) {
         scoot.memory.objective = ChargeController.OBJECTIVE_CHARGE;
       }
 
@@ -58,7 +55,9 @@ export default class ChargeController
       }
 
       if (scoot.memory.objective === ChargeController.OBJECTIVE_REFILL) {
-        if (scoot.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+        if (!container) {
+          scoot.say('empty!');
+        } else if (scoot.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
           scoot.moveTo(container);
         }
       }
@@ -96,9 +95,17 @@ export default class ChargeController
     return controller;
   }
 
-  private getClosestContainer(target: Creep|StructureController): StructureContainer|null {
-    return target.pos.findClosestByRange<StructureContainer>(FIND_STRUCTURES,
+  private getClosestContainer(): StructureContainer|null {
+    const containers = this.getController().pos.findInRange<StructureContainer>(
+      FIND_STRUCTURES,
+      2,
       { filter: (a: any) => a.structureType === STRUCTURE_CONTAINER && a.store.getUsedCapacity(RESOURCE_ENERGY) > 0}
     );
+
+    if (containers.length !== 0) {
+      return containers[0];
+    }
+
+    return null;
   }
 }
